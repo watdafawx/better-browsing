@@ -113,7 +113,7 @@
     const now = Date.now();
     tries = tries.filter(t => now - t < 20000);
     if (cut) {
-      if (now - lastTry > 1500 && tries.length < 3) { lastTry = now; tries.push(now); cut.click(); }
+      if (now - lastTry > 400 && tries.length < 4) { lastTry = now; tries.push(now); cut.click(); }
     } else if (tries.length || opened) {   // we opened them: keep them (and new ones) open
       opened = true;
       caps.forEach(b => b.dataset.igbCaption || lockOpen(b));
