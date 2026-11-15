@@ -1,12 +1,21 @@
 {
   "name": "Pinterest Better Browsing",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Pinterest part of the userscript. This file lists the scripts build.js puts into dist/better-browsing.user.js, in load order, and holds the Pinterest part's version.",
   "content_scripts": [
     {
       "js": [
+        "main-world.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "js": [
         "content/defaults.js",
         "content/core.js",
+        "content/video.js",
+        "content/hide.js",
+        "content/lightbox.js",
         "content/settings.js"
       ],
       "css": [

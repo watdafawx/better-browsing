@@ -106,9 +106,13 @@ See [CLAUDE.md](CLAUDE.md) for how the pieces fit together and the rules to keep
 2. Run `npm run test:all`.
 3. `npm run build`, then `npm run release:userscript` (uploads `dist/better-browsing.user.js` to the fixed `userscript` release that installed scripts check).
 
-## Instagram and X
+## Instagram, X and Pinterest
 
-`instagram/` holds the Instagram part: browser video controls on every video, sound on by default at your volume, and a fast lightbox. See [instagram/README.md](instagram/README.md). `x/` holds the X part: [x/README.md](x/README.md). `npm run build` puts all three into `dist/better-browsing.user.js`.
+`instagram/` holds the Instagram part: browser video controls on every video, sound on by default at your volume, and a fast lightbox. See [instagram/README.md](instagram/README.md). `x/` holds the X part: [x/README.md](x/README.md).
+
+`pinterest/` holds the Pinterest part: a pin viewer over the grid (wheel/arrows through the loaded pins, idea pins as page sequences, click to zoom, description side panel), video sound at your volume with the browser's controls, offscreen and hidden-tab pause, promoted pins hidden, and the settings in Pinterest's left sidebar or <kbd>Alt</kbd>+<kbd>W</kbd>. See [pinterest/README.md](pinterest/README.md).
+
+`npm run build` puts all four into `dist/better-browsing.user.js`.
 
 ## License
 

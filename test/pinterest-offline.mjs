@@ -1,5 +1,5 @@
-// Offline smoke test: the userscript on Pinterest. Answers every pinterest.com request from fixtures, so it
-// never touches the site. Run: node test/pinterest-offline.mjs  (BROWSER=firefox for Firefox)
+// Offline smoke test: the userscript on Pinterest. Answers every pinterest.com / pinimg.com request from
+// fixtures, so it never touches the site. Run: node test/pinterest-offline.mjs  (BROWSER=firefox for Firefox)
 import { chromium, firefox } from 'playwright';
 import path from 'path'; import fs from 'fs';
 
@@ -9,7 +9,36 @@ const FF = process.env.BROWSER === 'firefox', bt = FF ? firefox : chromium;
 const browser = await bt.launch(FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {});
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 
-const pins = ['111111', '222222', '333333', '444444'];
+// pins in grid order: image, video, idea (2 pages), image, then a promoted one
+const cards = [
+  { id: '111111', label: 'Image pin' },
+  { id: '222222', label: 'Video pin' },
+  { id: '333333', label: 'Idea pin' },
+  { id: '444444', label: 'Second image' },
+  { id: '555555', label: 'Promoted' },
+];
+const PINS = {
+  '111111': {
+    id: '111111', title: 'Image pin', description: 'A description here',
+    images: { orig: { url: 'https://i.pinimg.com/originals/a.jpg', width: 800, height: 1200 }, '736x': { url: 'https://i.pinimg.com/736x/a.jpg' } },
+    pinner: { username: 'alice' }, repin_count: 1234, comment_count: 3,
+  },
+  '222222': {
+    id: '222222', title: 'Video pin', description: 'Moving pictures',
+    videos: { video_list: { V_720P: { url: 'https://v1.pinimg.com/videos/x.mp4', width: 640, height: 360 }, V_HLSV4: { url: 'https://v1.pinimg.com/videos/x.m3u8' } } },
+    images: { '736x': { url: 'https://i.pinimg.com/736x/v.jpg' } }, pinner: { username: 'bob' }, repin_count: 7, comment_count: 0,
+  },
+  '333333': {
+    id: '333333', title: 'Idea pin', description: 'Two pages',
+    story_pin_data: { page_count: 2, pages: [
+      { image: { images: { orig: { url: 'https://i.pinimg.com/originals/p1.jpg' } } }, blocks: [], video: null },
+      { image: { images: { orig: { url: 'https://i.pinimg.com/originals/p2.jpg' } } }, blocks: [], video: null },
+    ] },
+    pinner: { username: 'carol' }, comment_count: 0,
+  },
+  '444444': { id: '444444', title: 'Second image', images: { orig: { url: 'https://i.pinimg.com/originals/b.jpg' } }, pinner: { username: 'dave' } },
+};
+
 const feed = `<!doctype html><html><head><title>Pinterest fixture</title></head><body>
 <header style="height:64px"><div data-test-id="header">header</div></header>
 <div class="navcol" style="display:flex;flex-direction:column;gap:24px;width:80px">
@@ -18,16 +47,26 @@ const feed = `<!doctype html><html><head><title>Pinterest fixture</title></head>
   <div data-test-id="vertical-nav-icon"><div><div aria-label="Explore"><a href="/explore/" aria-label="Explore"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></a></div></div></div>
 </div>
 <div id="grid">
-${pins.map((id, i) => `<div data-test-id="pin" data-test-pin-id="${id}" data-test-pin-slot-index="${i}">
-  <div data-test-id="pinWrapper"><a href="/pin/${id}/"><div data-test-id="pincard-image-with-link"><img src="https://i.pinimg.com/236x/x/${id}.jpg" alt=""></div></a></div>
+${cards.map(({ id, label }, i) => `<div data-test-id="pin" id="pin-${id}" data-test-pin-id="${id}" data-test-pin-slot-index="${i}">
+  <div data-test-id="pinWrapper"><a href="/pin/${id}/"><div data-test-id="pincard-image-with-link"><img src="https://i.pinimg.com/236x/${id}.jpg" alt=""></div></a></div>
   <button data-test-id="more-actions-button" aria-label="More options">…</button>
+  ${label === 'Promoted' ? '<span>Promoted</span>' : `<span>${label}</span>`}
 </div>`).join('\n')}
 </div>
 <div style="height:2000px"></div></body></html>`;
 
-await ctx.route(/pinterest\.com/, route => {
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+await ctx.route(/pinterest\.com|pinimg\.com/, route => {
   const u = new URL(route.request().url());
-  if (/^\/resource\//.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resource_response: { status: 'success', data: {} } }) });
+  if (u.pathname.startsWith('/resource/')) {
+    let id = null;
+    try { id = JSON.parse(u.searchParams.get('data') || '{}')?.options?.id; } catch {}
+    const data = id ? (PINS[id] || null) : null;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resource_response: { status: 'success', code: 0, data } }) });
+  }
+  if (/\.(jpg|jpeg|png|webp)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: png });
+  if (/\.(mp4|m3u8)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'video/mp4', body: '' });
   return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
 });
 await ctx.addInitScript({ path: usFile });
@@ -36,7 +75,7 @@ const logs = [];
 const page = await ctx.newPage();
 page.on('pageerror', e => logs.push('[pageerror] ' + e.message));
 page.on('dialog', d => { logs.push('[DIALOG!] ' + d.message()); d.dismiss(); });
-page.on('console', m => { if (m.type() === 'error') logs.push('[error] ' + m.text().slice(0, 200)); });
+page.on('console', m => { if (m.type() === 'error' && /\[PIN\]|Uncaught/.test(m.text())) logs.push('[error] ' + m.text().slice(0, 200)); });
 
 const r = {};
 await page.goto('https://www.pinterest.com/');
@@ -48,80 +87,87 @@ r.boot = await page.evaluate(() => {
   return {
     pin: !!window.PIN,
     volume: window.PIN?.settings?.videoVolume,
-    nav: !!entry,
+    nav: !!entry && !!entry.closest('.navcol'),
     navLabel: a?.getAttribute('aria-label') || '',
-    navIcon: !!a?.querySelector('svg path'),
-    inNav: !!entry?.closest('.navcol'),
     gear: !!document.querySelector('.pin-gear'),
+    videoAttr: document.documentElement.dataset.pinVideo || '',
+    native: document.documentElement.classList.contains('pin-native'),
     snap: !!localStorage.getItem('pin-settings-snapshot'),
     pins: document.querySelectorAll('[data-test-id="pin"]').length,
   };
 });
 
-// the sidebar entry opens the panel
-await page.click('.pin-nav-entry a');
-await page.waitForTimeout(400);
-r.panel = await page.evaluate(() => {
-  const host = document.querySelector('.pin-settings');
-  const root = host?.shadowRoot;
+// promoted pin is marked and hidden
+r.promoted = await page.evaluate(() => {
+  const ad = document.querySelector('#pin-555555');
+  return { marked: ad?.classList.contains('pin-ad'), display: ad ? getComputedStyle(ad).display : '', value: window.PIN?.settings?.hidePromoted };
+});
+
+// click the first image pin: our viewer opens, not Pinterest's page
+await page.click('#pin-111111 a');
+await page.waitForTimeout(900);
+r.image = await page.evaluate(() => {
+  const lb = document.querySelector('.pin-lb');
+  const img = lb?.querySelector('img.pin-lb-media');
   return {
-    open: !!host,
-    inputs: root ? root.querySelectorAll('[data-key]').length : 0,
-    title: root ? root.querySelector('h1')?.textContent : '',
-    fixed: host ? getComputedStyle(host).position : '',
+    open: !!lb,
+    url: location.href,
+    src: img?.getAttribute('src') || '',
+    count: lb?.querySelector('.pin-lb-count')?.textContent || '',
+    title: lb?.querySelector('.pin-lb-title')?.textContent || '',
+    side: lb?.querySelector('.pin-lb-side')?.innerText.replace(/\s+/g, ' ').slice(0, 120) || '',
+    film: lb?.querySelectorAll('.pin-lb-film img').length || 0,
+    locked: document.documentElement.classList.contains('pin-noscroll'),
+    attr: document.documentElement.hasAttribute('data-pin-lb'),
   };
 });
 
-// a change in the panel is saved and applied live
-await page.evaluate(() => {
-  const root = document.querySelector('.pin-settings').shadowRoot;
-  const el = root.querySelector('[data-key="videoVolume"]');
-  el.value = 12;
-  el.dispatchEvent(new Event('input', { bubbles: true }));
+// next: the video pin (our own player, sound per settings)
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(900);
+r.video = await page.evaluate(() => {
+  const v = document.querySelector('.pin-lb video');
+  return { there: !!v, src: v?.getAttribute('src') || '', vol: v?.volume, muted: v?.muted, controls: v?.controls, own: v?.dataset.pinOwn || '', poster: v?.getAttribute('poster') || '' };
 });
-await page.waitForTimeout(500);
-r.saved = await page.evaluate(() => ({
-  stored: JSON.parse(localStorage.getItem('pin-userscript-settings') || '{}')?.settings?.videoVolume,
-  live: window.PIN?.settings?.videoVolume,
-  out: document.querySelector('.pin-settings').shadowRoot.querySelector('[data-key="videoVolume"]').parentElement.querySelector('output')?.textContent,
-}));
 
-// Esc closes, Alt+W reopens
+// next: the idea pin, page 1 then page 2
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(700);
+r.story1 = await page.evaluate(() => ({ count: document.querySelector('.pin-lb-count')?.textContent || '', src: document.querySelector('.pin-lb img.pin-lb-media')?.getAttribute('src') || '' }));
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(700);
+r.story2 = await page.evaluate(() => ({ count: document.querySelector('.pin-lb-count')?.textContent || '', src: document.querySelector('.pin-lb img.pin-lb-media')?.getAttribute('src') || '' }));
+
+// page 2 is the last page: the next press moves to the next pin
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(700);
+r.nextPin = await page.evaluate(() => ({ count: document.querySelector('.pin-lb-count')?.textContent || '', src: document.querySelector('.pin-lb img.pin-lb-media')?.getAttribute('src') || '' }));
+
+// Esc closes and gives the page back
 await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
-r.escClosed = await page.evaluate(() => !document.querySelector('.pin-settings'));
-await page.keyboard.press('Alt+KeyW');
 await page.waitForTimeout(400);
-r.altW = await page.evaluate(() => !!document.querySelector('.pin-settings'));
+r.closed = await page.evaluate(() => ({ gone: !document.querySelector('.pin-lb'), unlocked: !document.documentElement.classList.contains('pin-noscroll'), attr: document.documentElement.hasAttribute('data-pin-lb') }));
 
-// the floating button switch adds and removes it live; so does the sidebar switch
+// the promoted switch shows them again
 await page.evaluate(async () => {
   const { settings = {} } = await PIN.api.storage.sync.get('settings');
-  await PIN.api.storage.sync.set({ settings: { ...settings, settingsButton: true } });
+  await PIN.api.storage.sync.set({ settings: { ...settings, hidePromoted: false } });
 });
 await page.waitForTimeout(500);
-r.buttonOn = await page.evaluate(() => {
-  const b = document.querySelector('.pin-gear');
-  return { there: !!b, fixed: b ? getComputedStyle(b).position : '' };
+r.unhidden = await page.evaluate(() => {
+  const ad = document.querySelector('#pin-555555');
+  return { display: ad ? getComputedStyle(ad).display : '', marked: ad?.classList.contains('pin-ad') };
 });
-await page.evaluate(async () => {
-  const { settings = {} } = await PIN.api.storage.sync.get('settings');
-  await PIN.api.storage.sync.set({ settings: { ...settings, settingsButton: false, sidebarEntry: false } });
-});
-await page.waitForTimeout(500);
-r.off = await page.evaluate(() => ({ gear: !document.querySelector('.pin-gear'), nav: !document.querySelector('.pin-nav-entry') }));
-
-// pin ids survive the virtualised grid markup for later milestones
-r.ids = await page.evaluate(() => [...document.querySelectorAll('[data-test-id="pin"]')].map(p => p.getAttribute('data-test-pin-id')));
 
 const checks = {
-  'userscript loads on Pinterest with settings and the sidebar entry': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.inNav && r.boot.navLabel === 'Better Browsing' && r.boot.navIcon && !r.boot.gear && r.boot.snap,
-  'the fixture grid is there (4 pins with ids)': r.boot?.pins === 4 && r.ids?.length === 4 && r.ids[0] === '111111',
-  'the sidebar entry opens the settings panel (shadow DOM, form fields)': r.panel?.open && r.panel.inputs >= 9 && /Pinterest Better Browsing/.test(r.panel.title || '') && r.panel.fixed === 'fixed',
-  'a panel change is saved and applied live': r.saved?.stored === 12 && r.saved.live === 12 && r.saved.out === '12',
-  'Esc closes and Alt+W reopens': r.escClosed && r.altW,
-  'the floating button switch adds and removes it live': r.buttonOn?.there && r.buttonOn.fixed === 'fixed' && r.off?.gear,
-  'the sidebar switch removes the entry live': r.off?.nav === true,
+  'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
+  'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
+  'a pin opens our viewer, not Pinterest\'s page (orig image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /originals\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
+  'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1',
+  'an idea pin is a page sequence': /page 1 \/ 2/.test(r.story1?.count || '') && /p1\.jpg$/.test(r.story1?.src || '') && /page 2 \/ 2/.test(r.story2?.count || '') && /p2\.jpg$/.test(r.story2?.src || ''),
+  'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /originals\/b\.jpg$/.test(r.nextPin?.src || ''),
+  'Esc closes and unlocks the page': r.closed?.gone && r.closed.unlocked && !r.closed.attr,
+  'the promoted switch brings them back': r.unhidden?.display !== 'none',
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };
 

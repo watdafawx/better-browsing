@@ -1,7 +1,22 @@
-# Pinterest Better Browsing (planned)
+# Pinterest Better Browsing
 
-Part of the one userscript (`dist/better-browsing.user.js`). This file holds what was learned from a real
-logged-in session (milestone 0) so the implementation does not have to re-discover it.
+Part of the one userscript (`dist/better-browsing.user.js`). This file describes the features and then holds what
+a real logged-in session showed, so nobody has to re-discover it.
+
+## Features
+
+- **Pin viewer** instead of Pinterest's close-up: click a pin in any grid. Wheel, arrows or the ‹ › buttons step
+  through the loaded pins (the grid is virtualised, so it keeps its own id list and loads more by scrolling the
+  page behind). An idea pin steps through its pages before moving on. Click the media to zoom.
+- **Side panel** with the pin's title, description, author, saves and comment count; comments themselves open on
+  Pinterest (no public comment resource was found — see below).
+- **Video** at your volume (default 40%), muted, or no autoplay, using `video_list.V_720P`, the progressive mp4
+  that carries AAC audio, in our own player. Pinterest's own players follow the same setting, pause when scrolled
+  out of view and when the tab/window loses focus (`main-world.js` + `video.js`).
+- **Promoted pins** hidden from the grid (and skipped by the viewer) when the setting is on.
+- **Settings** in Pinterest's left sidebar (a clone of one of its nav items), an optional floating button, or
+  <kbd>Alt</kbd>+<kbd>W</kbd>. Stored in `pin-userscript-settings` (flat, like Instagram and X).
+- Idea pins, images and videos all open without leaving the page; Ctrl/⌘/middle-click still goes to Pinterest.
 
 ## Verified on a live session (Nov 2026)
 
@@ -33,7 +48,8 @@ cookies; no token beyond `csrftoken` in the cookie jar.
 
 **Images.** `pin.images` is a map: `60x60`, `136x136`, `170x`, `236x`, `474x`, `564x`, `736x`, `600x315`,
 `1200x`, `orig`. `orig` is the full resolution; the feed only loads `236x`/`474x` through `srcset`, and the
-close-up shows `736x`. Use `orig` (fall back to `736x`, then the largest key present).
+close-up shows `736x`. Use `orig` (fall back to `1200x`, `750x`, `736x`). Idea-pin pages and blocks name the full
+size `originals` (plural) instead, so `imgOf` checks both.
 
 **Videos.** `pin.videos.video_list`:
 
@@ -51,8 +67,8 @@ volume settings, our lightbox) without hls.js.
 by `pin.videos?.video_list?.V_720P` (or any `V_*` mp4).
 
 **Idea pins.** `pin.story_pin_data.pages[]` with `page_count`; each page has `type`, `layout`, `blocks[]`
-(`block_type: "story_pin_image_block"`, `type`, `block_style`, `image`), plus `video` (nullable),
-`should_mute`, `music_attributions`, `image`, `image_signature`. The close-up renders them as
+(`block_type` is a number, the image is `block.image.images`), plus `video` (nullable), `should_mute`,
+`music_attributions`, `image`, `image_signature`. The close-up renders them as
 `[data-test-id="story-pin-page-drag-surface"]` and `[data-test-id="story-pin-image-block"]`. So an idea pin is a
 page sequence: iterate `pages`, use `video` when present, else `blocks[].image` / `image`.
 
@@ -61,12 +77,14 @@ page sequence: iterate `pages`, use `video` when present, else `blocks[].image` 
 "Add a comment to share your thoughts" in the DOM. Our lightbox replaces this view, so `Esc`/Back must not fight
 the router: closing should return to the previous feed URL.
 
-**Comments.** Not captured yet: the sampled pins had `comment_count: 0`, so no comment resource call was made.
-The UI is there ("Add a comment…"), so the resource name has to be read off a pin that actually has comments
-during milestone 2 (likely a `…CommentResource/get/`; confirm before coding).
+**Comments.** No resource was found: our probes (`AggregatedCommentResource`, `CommentsResource`,
+`CommentResource`) answer 404, and every pin we could open had `comment_count: 0`, so no comment request was ever
+made for us to copy. The viewer shows the count and links to the pin on Pinterest. Find a pin with comments and
+read the request off it when tweaking this.
 
-**Promoted pins.** Not verified. `PinResource` exposes `is_promotable`; the feed card has its own ad markup.
-Check both when implementing "hide promoted".
+**Promoted pins.** No ad card appeared in the sampled feeds, so the marker is a text match on the card
+("Promoted", "Sponsored" and a few languages) in `PIN.isPromoted`; `PinResource`'s `is_promotable` is unrelated.
+Refine it with a real ad card.
 
 ## Settings
 
@@ -76,7 +94,8 @@ Check both when implementing "hide promoted".
 
 ## Open questions
 
-- Comment resource name and payload (needs a pin with comments).
-- The promoted-pin marker (API field vs card markup).
+- Comment resource name and payload (needs a pin with comments; the viewer shows the count and a link meanwhile).
+- The promoted-pin marker is a label match in the card ("Promoted", "Sponsored", and a few languages). Refine it
+  with a real ad card, and check whether Pinterest ever exposes it in the data instead.
 - Whether the feed gives a stable hook for "this pin is now visible" (for prefetching the next pins).
 - Alt+W availability inside Pinterest's own shortcuts.

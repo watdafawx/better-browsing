@@ -10,6 +10,11 @@ PIN.DEFAULTS = {
   videoPauseOffscreen: true,
   videoPauseOnHide: true,     // pause when the tab is hidden or the window loses focus
 
+  // Lightbox
+  lightbox: true,             // click a pin in the grid and open it in our viewer
+  lightboxText: true,         // description, author and stats side panel
+  lightboxFilmstrip: true,
+
   // Feed
   hidePromoted: true,         // promoted (ad) pins out of the grid
 

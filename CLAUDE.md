@@ -92,5 +92,14 @@ milestones. What code must not forget:
   return to the feed without fighting the router.
 - Settings are flat (`pin-userscript-settings`), the panel is the shared `userscript/panel.js`, opened by the
   entry cloned into Pinterest's left nav (`[data-test-id="vertical-nav-icon"]`, `.pin-nav-entry`), an optional
-  floating `.pin-gear` button, or Alt+W. Milestone 1 is the settings skeleton only; video and the lightbox are
-  still to come.
+  floating `.pin-gear` button, or Alt+W.
+- The viewer (`lightbox.js`) replaces Pinterest's close-up: it opens on a capture-phase click of a grid card's
+  `/pin/<id>/` link, keeps its own ordered id list (the grid is virtualised), fetches each pin with `PIN.pinData`
+  and steps with the wheel/arrows/buttons. Idea pins step through `story_pin_data.pages` before moving on, images
+  use `images.orig`, videos use `video_list.V_720P` in our own player (`data-pin-own`), and the side panel shows
+  description/author/stats. Comments have no known resource yet, so the panel links to them on Pinterest.
+- `hide.js` marks promoted cards (`PIN.isPromoted`, a label match) and one class on `<html>`
+  (`.pin-hide-promoted`) hides them; the viewer skips them too.
+- Video: `main-world.js` owns the sound decision (`play`/`muted`/`volume`/`autoplay`), `video.js` publishes the
+  setting to `<html data-pin-video>`, marks our players `data-pin-own`, pauses offscreen and when hidden, and
+  retries a refused audible start muted.

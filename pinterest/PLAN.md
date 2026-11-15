@@ -118,17 +118,16 @@ answering 403. Requests go through `PIN.getJSON` built on `content.fetch` in a F
 1. **Skeleton.** Folder, manifest, `build.js` wiring, storage, empty content scripts, panel mounting, header and
    version. Test: the built script loads on a fixture page, `PIN` exists, settings read/write, panel opens with
    Alt+W and closes with Esc.
-2. **Video.** `main-world.js` + `content/video.js`: sound setting applied to Pinterest's players, no autoplay
-   fighting (patch `autoplay`/`play`/`muted`/`volume`), pause offscreen and when hidden, our own player for
-   pins we open in the lightbox.
-3. **Lightbox.** Adapted from Reddit's: click a grid pin → overlay with the full image or video, wheel/arrows
-   through the grid, filmstrip, description + comments side panel, `Esc`/back, idea pins as a page sequence,
-   provider embeds lazy-mounted + reload.
-4. **Polish.** Hide promoted pins (default on), "Open pin"/copy-link/download actions, floating bottom-right
-   settings button + Alt+W, `Esc` conflicts with Pinterest's own overlay/router, NSFW/sensitive-content handling.
-5. **Tests + docs.** `test/pinterest-offline.mjs` on fixtures (feed grid, close-up JSON, a video pin, an embed
-   pin) with the same PASS/FAIL output; add it to `test/all.mjs` for Chromium and Firefox; update
-   `README.md`, `CLAUDE.md` (new "Pinterest" section) and the release notes.
+2. **Video — done.** `main-world.js` owns the sound decision (`play`/`muted`/`volume`/`autoplay`), `video.js`
+   publishes the setting, marks our players, pauses offscreen and when hidden, and retries a refused audible start.
+   Pinterest's `V_720P` mp4 made hls.js unnecessary.
+3. **Lightbox — done.** Our viewer over the grid with its own id list (virtualised grid), `images.orig` at full
+   size, `story_pin_data.pages` as a page sequence, our own video player, side panel, zoom, filmstrip, Esc/back.
+4. **Polish — done (one gap).** Promoted pins hidden (label match), sidebar/floating settings entries, Alt+W,
+   open-on-Pinterest and copy-link actions. Downloads were left out; comments link to Pinterest because no public
+   comment resource was found.
+5. **Tests + docs — done.** `test/pinterest-offline.mjs` on fixtures (grid, pin API, image/video/idea pins, a
+   promoted card), in `test/all.mjs` for Chromium and Firefox; `README.md`, `CLAUDE.md` and this file updated.
 
 ## Risks
 

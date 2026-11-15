@@ -85,4 +85,19 @@
   // One pin, in the shape the pin page uses (images, videos, story_pin_data, comment_count).
   PIN.getPin = id => PIN.resource('PinResource/get', { id: String(id), field_set_key: 'auth_web_main_pin', noCache: true },
     { source: '/pin/' + id + '/', handler: 'www/pin/[id].js' });
+
+  // Cached per page: the lightbox and the grid share it.
+  const pinCache = new Map();
+  PIN.pinData = function (id) {
+    if (!pinCache.has(id)) {
+      const p = PIN.getPin(id).catch(e => { console.warn('[PIN] pin load failed', id, e?.message || e); return null; });
+      pinCache.set(id, p);
+    }
+    return pinCache.get(id);
+  };
+
+  // Promoted pins: the card carries the label. The API's `is_promotable` is something else entirely, and the
+  // grid card is the only place the marker shows up.
+  const AD_LABEL = /(^|[\s·•|])(promoted|sponsored|gesponsert|sponsorisé|patrocinado|sponsorizzato|promosso|anuncio)([\s·•|]|$)/i;
+  PIN.isPromoted = el => AD_LABEL.test(el?.textContent || '');   // textContent: cheap enough to run over a whole grid
 })();
