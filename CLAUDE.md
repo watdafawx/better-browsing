@@ -1,13 +1,13 @@
 # CLAUDE.md
 
-One userscript (`dist/better-browsing.user.js`, auto-updating) for new Reddit, Instagram and X, built by `build.js` from three parts, all plain JavaScript with no framework, no bundler and no runtime dependencies: Reddit in `src/`, Instagram in `instagram/src/`, X in `x/src/`, plus code all three share in `userscript/`. The parts were once browser extensions (Manifest V3); that history explains their shape (content scripts, a `world: "MAIN"` file, `<site>.api.storage`), but no extension is built any more. README.md has the user-facing feature list and the file layout.
+One userscript (`dist/better-browsing.user.js`, auto-updating) for new Reddit, Instagram, X and Pinterest, built by `build.js` from four parts, all plain JavaScript with no framework, no bundler and no runtime dependencies: Reddit in `src/`, Instagram in `instagram/src/`, X in `x/src/`, Pinterest in `pinterest/src/`, plus code all four share in `userscript/`. The parts were once browser extensions (Manifest V3); that history explains their shape (content scripts, a `world: "MAIN"` file, `<site>.api.storage`), but no extension is built any more. README.md has the user-facing feature list and the file layout.
 
 ## Commands
 
 - `npm run build`: writes `dist/better-browsing.user.js` and prints its size.
-- `npm test`, `npm run test:instagram`, `npm run test:x`: build, then the offline Playwright test of that site (`test/offline.mjs`, `test/instagram-offline.mjs`, `test/x-offline.mjs`). Needs `npm install` and `npx playwright install chromium firefox` once. `BROWSER=firefox` runs a test in Firefox (Reddit and Instagram: only their second part; the first always runs in Chromium).
+- `npm test`, `npm run test:instagram`, `npm run test:x`, `npm run test:pinterest`: build, then the offline Playwright test of that site (`test/offline.mjs`, `test/instagram-offline.mjs`, `test/x-offline.mjs`, `test/pinterest-offline.mjs`). Needs `npm install` and `npx playwright install chromium firefox` once. `BROWSER=firefox` runs a test in Firefox (Reddit and Instagram: only their second part; the first always runs in Chromium).
 - `npm run test:all`: every site in Chromium and Firefox (`test/all.mjs`). Run it before a release. It includes the CPU guards in `test/lib/perf.mjs` (nothing changes on an idle page by itself; the script adds little work on a page that keeps changing); keep them passing when adding a subscriber, timer or observer.
-- Syntax check without a browser: `for f in src/*.js src/*/*.js instagram/src/*.js instagram/src/*/*.js x/src/*.js x/src/*/*.js userscript/*.js; do node --check "$f"; done`
+- Syntax check without a browser: `for f in src/*.js src/*/*.js instagram/src/*.js instagram/src/*/*.js x/src/*.js x/src/*/*.js pinterest/src/*.js pinterest/src/*/*.js userscript/*.js; do node --check "$f"; done`
 
 ## Rules
 
@@ -68,3 +68,28 @@ Same shape, global `XBB`. `x/README.md` describes the features and how they work
 - Find things by `data-testid` and structure (`article[data-testid="tweet"]`, `[role="group"]`, `videoPlayer` > `videoComponent`), never by X's generated class names or English labels. The testids were checked against real x.com on 2026-11-11; the offline fixtures copy that shape.
 - The script runs in the page's own JS world, so its own calls to `play()`, `muted` and `volume` go through the `main-world.js` patches too: a video it starts must carry `data-xbb-pick`, and `muted`/`volume` writes from it are ignored while native controls are on.
 - GIFs are videos in the same `videoPlayer`; they are skipped by their `/tweet_video/` source or `loop` at first sight.
+
+## Pinterest (`pinterest/`)
+
+Same shape, global `PIN`. `pinterest/README.md` holds what a logged-in session showed; `pinterest/PLAN.md` the
+milestones. What code must not forget:
+
+- Selectors: pins are `[data-test-id="pin"]` with the id on `data-test-pin-id`; the link sits inside
+  `pinWrapper`; the image is `pinrep-image`; idea pins are `pincard-storyPin-*`. Class names are hashed: never
+  select on them.
+- **The grid is virtualised**: off-screen pins leave the DOM. Anything that steps through pins keeps its own
+  ordered list of ids and fetches by id (`PIN.getPin`), then re-anchors the feed when it closes.
+- Data: `PIN.resource(name, options, { source, handler })` wraps `/resource/<Name>/<action>/` with the headers
+  the site sends. `x-pinterest-source-url` and `x-pinterest-pws-handler` are **required** or the API answers
+  "Invalid Request" (pin handler: `www/pin/[id].js`). The envelope is `resource_response.data`.
+- Images: `pin.images` is a map — use `orig`, fall back to `1200x`/`736x`. Videos:
+  `pin.videos.video_list.V_720P` is a progressive mp4 **with AAC audio**, so Pinterest needs no hls.js; the page's
+  MSE player and the HLS renditions are not needed for our own lightbox. `is_video` is unreliable — detect video
+  by `videos.video_list`.
+- Idea pins: `story_pin_data.pages[]` with blocks and a per-page `video`/`image`; DOM hooks
+  `story-pin-page-drag-surface` and `story-pin-image-block`.
+- Opening a pin is a navigation to `/pin/<id>/` with `closeup-*` elements, not a modal: closing our overlay must
+  return to the feed without fighting the router.
+- Settings are flat (`pin-userscript-settings`), the panel is the shared `userscript/panel.js`, opened by the
+  floating bottom-right button (`.pin-gear`) or Alt+W. Milestone 1 is the settings skeleton only; video and the
+  lightbox are still to come.

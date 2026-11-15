@@ -11,6 +11,8 @@ const runs = [
   ['Reddit, Firefox', ...node('test/offline.mjs'), { BROWSER: 'firefox' }],
   ['Instagram, Chromium', ...node('test/instagram-offline.mjs')],
   ['Instagram, Firefox', ...node('test/instagram-offline.mjs'), { BROWSER: 'firefox' }],
+  ['Pinterest, Chromium', ...node('test/pinterest-offline.mjs')],
+  ['Pinterest, Firefox', ...node('test/pinterest-offline.mjs'), { BROWSER: 'firefox' }],
 ];
 
 let bad = 0;

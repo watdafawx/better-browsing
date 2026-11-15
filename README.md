@@ -1,6 +1,7 @@
 # Reddit Better Browsing
 
-A userscript for the new Reddit layout (www.reddit.com), Instagram and X, for Chrome and Firefox. On Reddit: read posts and comments without leaving the feed, browse images in a proper viewer, and control video autoplay, spoilers, NSFW and themes.
+A userscript for the new Reddit layout (www.reddit.com), Instagram, X and Pinterest (Pinterest is in progress:
+settings only so far), for Chrome and Firefox. On Reddit: read posts and comments without leaving the feed, browse images in a proper viewer, and control video autoplay, spoilers, NSFW and themes.
 
 - [Install](#install)
 - [Features](#features)

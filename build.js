@@ -72,21 +72,27 @@ const xsite = site({
   api: `XBB.api = bbStore('xbb-userscript-settings');`,
   panelJs: `XBB.openSettings = bbPanel({ cls: 'xbb-root xbb-settings', html: PANEL_HTML, css: PANEL_CSS, mount: root => XBB.mountSettings(root) });`
 });
+const pinterest = site({
+  srcDir: 'pinterest/src', manifest: 'pinterest/manifest.base.json', cssId: 'pin-css',
+  api: `PIN.api = bbStore('pin-userscript-settings');`,
+  panelJs: `PIN.openSettings = bbPanel({ cls: 'pin-root pin-settings', html: PANEL_HTML, css: PANEL_CSS, mount: root => PIN.mountSettings(root) });`
+});
 
 // Version goes up whenever any part's does (Tampermonkey compares it part by part). The last part,
 // userscriptRevision in package.json, is for changes to the script alone (header, icon, userscript/*):
 // bump it for those, set it back to 0 when a part's version changes.
 const ver = f => JSON.parse(read(f)).version;
-const [rv, iv, xv] = ['manifest.base.json', 'instagram/manifest.base.json', 'x/manifest.base.json'].map(ver);
-const version = `${rv}.${iv}.${xv}.${JSON.parse(read('package.json')).userscriptRevision || 0}`;
+const [rv, iv, xv, pv] = ['manifest.base.json', 'instagram/manifest.base.json', 'x/manifest.base.json', 'pinterest/manifest.base.json'].map(ver);
+const version = `${rv}.${iv}.${xv}.${pv}.${JSON.parse(read('package.json')).userscriptRevision || 0}`;
 const header = `// ==UserScript==
 // @name         Better Browsing (Reddit + Instagram)
 // @namespace    better-browsing-watdafawx
 // @version      ${version}
-// @description  Reddit Better Browsing ${rv}, Instagram Better Browsing ${iv} and X Better Browsing ${xv} in one script. Reddit settings: the gear in Reddit's top bar; Instagram and X settings: Alt+W (also a gear in their sidebars).
+// @description  Reddit Better Browsing ${rv}, Instagram Better Browsing ${iv}, X Better Browsing ${xv} and Pinterest Better Browsing ${pv} in one script. Reddit settings: the gear in Reddit's top bar; the others: Alt+W (Instagram and X also have a gear in their sidebars, Pinterest a floating button).
 // @match        https://*.reddit.com/*
 // @match        https://www.instagram.com/*
 // @match        https://x.com/*
+// @match        https://*.pinterest.com/*
 // @exclude      https://old.reddit.com/*
 // @run-at       document-start
 // @grant        none
@@ -102,6 +108,7 @@ const header = `// ==UserScript==
 const sites = `const host = location.hostname;
 if (host === 'www.instagram.com') {${instagram}
 } else if (host === 'x.com') {${xsite}
+} else if (/(^|\.)pinterest\.com$/.test(host)) {${pinterest}
 } else if (/(^|\.)reddit\.com$/.test(host) && host !== 'old.reddit.com' && !location.pathname.startsWith('/media')) {${reddit}
 }`;
 // Some managers run document-start scripts before <html> exists; everything here needs it.
