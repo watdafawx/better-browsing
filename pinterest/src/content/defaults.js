@@ -14,7 +14,8 @@ PIN.DEFAULTS = {
   hidePromoted: true,         // promoted (ad) pins out of the grid
 
   // Page
-  settingsButton: true        // floating button in the bottom-right corner (Alt+W always works)
+  sidebarEntry: true,         // settings entry in Pinterest's left nav (like Instagram's sidebar gear)
+  settingsButton: false       // floating button in the bottom-right corner (Alt+W always works)
 };
 
 PIN.mergeSettings = stored => Object.assign({}, PIN.DEFAULTS, stored || {});

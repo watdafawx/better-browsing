@@ -71,7 +71,8 @@ Check both when implementing "hide promoted".
 ## Settings
 
 `bbStore('pin-userscript-settings')` (flat, like Instagram and X), panel through the shared
-`userscript/panel.js`, opened by a floating bottom-right button and Alt+W.
+`userscript/panel.js`, opened by an entry in Pinterest's left nav (a clone of a `vertical-nav-icon` item, class
+`.pin-nav-entry`), an optional floating bottom-right button, and Alt+W.
 
 ## Open questions
 

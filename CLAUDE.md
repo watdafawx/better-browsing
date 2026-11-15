@@ -91,5 +91,6 @@ milestones. What code must not forget:
 - Opening a pin is a navigation to `/pin/<id>/` with `closeup-*` elements, not a modal: closing our overlay must
   return to the feed without fighting the router.
 - Settings are flat (`pin-userscript-settings`), the panel is the shared `userscript/panel.js`, opened by the
-  floating bottom-right button (`.pin-gear`) or Alt+W. Milestone 1 is the settings skeleton only; video and the
-  lightbox are still to come.
+  entry cloned into Pinterest's left nav (`[data-test-id="vertical-nav-icon"]`, `.pin-nav-entry`), an optional
+  floating `.pin-gear` button, or Alt+W. Milestone 1 is the settings skeleton only; video and the lightbox are
+  still to come.

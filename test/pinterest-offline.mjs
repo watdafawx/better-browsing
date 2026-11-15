@@ -12,6 +12,11 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const pins = ['111111', '222222', '333333', '444444'];
 const feed = `<!doctype html><html><head><title>Pinterest fixture</title></head><body>
 <header style="height:64px"><div data-test-id="header">header</div></header>
+<div class="navcol" style="display:flex;flex-direction:column;gap:24px;width:80px">
+  <div data-test-id="pinterest-logo-home-button"><div><a href="/" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></a></div></div>
+  <div data-test-id="vertical-nav-icon"><div><div aria-label="Home"><a href="/" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></a></div></div></div>
+  <div data-test-id="vertical-nav-icon"><div><div aria-label="Explore"><a href="/explore/" aria-label="Explore"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></a></div></div></div>
+</div>
 <div id="grid">
 ${pins.map((id, i) => `<div data-test-id="pin" data-test-pin-id="${id}" data-test-pin-slot-index="${i}">
   <div data-test-id="pinWrapper"><a href="/pin/${id}/"><div data-test-id="pincard-image-with-link"><img src="https://i.pinimg.com/236x/x/${id}.jpg" alt=""></div></a></div>
@@ -37,17 +42,24 @@ const r = {};
 await page.goto('https://www.pinterest.com/');
 await page.waitForTimeout(1200);
 
-r.boot = await page.evaluate(() => ({
-  pin: !!window.PIN,
-  volume: window.PIN?.settings?.videoVolume,
-  gear: !!document.querySelector('.pin-gear'),
-  fixed: document.querySelector('.pin-gear') ? getComputedStyle(document.querySelector('.pin-gear')).position : '',
-  snap: !!localStorage.getItem('pin-settings-snapshot'),
-  pins: document.querySelectorAll('[data-test-id="pin"]').length,
-}));
+r.boot = await page.evaluate(() => {
+  const entry = document.querySelector('.pin-nav-entry');
+  const a = entry?.querySelector('a');
+  return {
+    pin: !!window.PIN,
+    volume: window.PIN?.settings?.videoVolume,
+    nav: !!entry,
+    navLabel: a?.getAttribute('aria-label') || '',
+    navIcon: !!a?.querySelector('svg path'),
+    inNav: !!entry?.closest('.navcol'),
+    gear: !!document.querySelector('.pin-gear'),
+    snap: !!localStorage.getItem('pin-settings-snapshot'),
+    pins: document.querySelectorAll('[data-test-id="pin"]').length,
+  };
+});
 
-// the button opens the panel
-await page.click('.pin-gear');
+// the sidebar entry opens the panel
+await page.click('.pin-nav-entry a');
 await page.waitForTimeout(400);
 r.panel = await page.evaluate(() => {
   const host = document.querySelector('.pin-settings');
@@ -82,24 +94,34 @@ await page.keyboard.press('Alt+KeyW');
 await page.waitForTimeout(400);
 r.altW = await page.evaluate(() => !!document.querySelector('.pin-settings'));
 
-// the floating button switch removes it, live
+// the floating button switch adds and removes it live; so does the sidebar switch
 await page.evaluate(async () => {
   const { settings = {} } = await PIN.api.storage.sync.get('settings');
-  await PIN.api.storage.sync.set({ settings: { ...settings, settingsButton: false } });
+  await PIN.api.storage.sync.set({ settings: { ...settings, settingsButton: true } });
 });
 await page.waitForTimeout(500);
-r.buttonOff = await page.evaluate(() => !document.querySelector('.pin-gear'));
+r.buttonOn = await page.evaluate(() => {
+  const b = document.querySelector('.pin-gear');
+  return { there: !!b, fixed: b ? getComputedStyle(b).position : '' };
+});
+await page.evaluate(async () => {
+  const { settings = {} } = await PIN.api.storage.sync.get('settings');
+  await PIN.api.storage.sync.set({ settings: { ...settings, settingsButton: false, sidebarEntry: false } });
+});
+await page.waitForTimeout(500);
+r.off = await page.evaluate(() => ({ gear: !document.querySelector('.pin-gear'), nav: !document.querySelector('.pin-nav-entry') }));
 
 // pin ids survive the virtualised grid markup for later milestones
 r.ids = await page.evaluate(() => [...document.querySelectorAll('[data-test-id="pin"]')].map(p => p.getAttribute('data-test-pin-id')));
 
 const checks = {
-  'userscript loads on Pinterest with settings and the floating button': r.boot?.pin && r.boot.volume === 40 && r.boot.gear && r.boot.fixed === 'fixed' && r.boot.snap,
+  'userscript loads on Pinterest with settings and the sidebar entry': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.inNav && r.boot.navLabel === 'Better Browsing' && r.boot.navIcon && !r.boot.gear && r.boot.snap,
   'the fixture grid is there (4 pins with ids)': r.boot?.pins === 4 && r.ids?.length === 4 && r.ids[0] === '111111',
-  'the button opens the settings panel (shadow DOM, form fields)': r.panel?.open && r.panel.inputs >= 8 && /Pinterest Better Browsing/.test(r.panel.title || '') && r.panel.fixed === 'fixed',
+  'the sidebar entry opens the settings panel (shadow DOM, form fields)': r.panel?.open && r.panel.inputs >= 9 && /Pinterest Better Browsing/.test(r.panel.title || '') && r.panel.fixed === 'fixed',
   'a panel change is saved and applied live': r.saved?.stored === 12 && r.saved.live === 12 && r.saved.out === '12',
   'Esc closes and Alt+W reopens': r.escClosed && r.altW,
-  'switching the floating button off removes it live': r.buttonOff === true,
+  'the floating button switch adds and removes it live': r.buttonOn?.there && r.buttonOn.fixed === 'fixed' && r.off?.gear,
+  'the sidebar switch removes the entry live': r.off?.nav === true,
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };
 
