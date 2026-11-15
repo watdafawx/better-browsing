@@ -96,6 +96,23 @@
     return pinCache.get(id);
   };
 
+  // Comments. They hang off the pin's *aggregated* id (aggregated_pin_data.id), not the pin id, and the resource
+  // returns an array of { text, user: { username, full_name, image_medium_url }, created_at, … }.
+  const commentCache = new Map();
+  PIN.comments = function (pin) {
+    const agg = pin?.aggregated_pin_data?.id;
+    if (!agg) return Promise.resolve([]);
+    const key = String(agg);
+    if (!commentCache.has(key)) {
+      commentCache.set(key, PIN.resource('UnifiedCommentsResource/get',
+        { aggregated_pin_id: key, comment_featured_ids: [], page_size: 10, redux_normalize_feed: true, is_reversed: false },
+        { source: '/pin/' + (pin.id || '') + '/', handler: 'www/pin/[id].js' })
+        .then(d => Array.isArray(d) ? d : [])
+        .catch(e => { console.warn('[PIN] comments failed', e?.message || e); return []; }));
+    }
+    return commentCache.get(key);
+  };
+
   // Promoted pins: the card carries the label. The API's `is_promotable` is something else entirely, and the
   // grid card is the only place the marker shows up.
   const AD_LABEL = /(^|[\s·•|])(promoted|sponsored|gesponsert|sponsorisé|patrocinado|sponsorizzato|promosso|anuncio)([\s·•|]|$)/i;

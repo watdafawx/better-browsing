@@ -8,8 +8,8 @@ a real logged-in session showed, so nobody has to re-discover it.
 - **Pin viewer** instead of Pinterest's close-up: click a pin in any grid. Wheel, arrows or the ‹ › buttons step
   through the loaded pins (the grid is virtualised, so it keeps its own id list and loads more by scrolling the
   page behind). An idea pin steps through its pages before moving on. Click the media to zoom.
-- **Side panel** with the pin's title, description, author, saves and comment count; comments themselves open on
-  Pinterest (no public comment resource was found — see below).
+- **Side panel** with the pin's title, description, author, saves and comment count, and the comments themselves
+  (first page of them, from `UnifiedCommentsResource`), with a link to read the rest on Pinterest.
 - **Video** at your volume (default 40%), muted, or no autoplay, using `video_list.V_720P`, the progressive mp4
   that carries AAC audio, in our own player. Pinterest's own players follow the same setting, pause when scrolled
   out of view and when the tab/window loses focus (`main-world.js` + `video.js`).
@@ -77,10 +77,12 @@ page sequence: iterate `pages`, use `video` when present, else `blocks[].image` 
 "Add a comment to share your thoughts" in the DOM. Our lightbox replaces this view, so `Esc`/Back must not fight
 the router: closing should return to the previous feed URL.
 
-**Comments.** No resource was found: our probes (`AggregatedCommentResource`, `CommentsResource`,
-`CommentResource`) answer 404, and every pin we could open had `comment_count: 0`, so no comment request was ever
-made for us to copy. The viewer shows the count and links to the pin on Pinterest. Find a pin with comments and
-read the request off it when tweaking this.
+**Comments.** They hang off the pin's **aggregated** id, not the pin id: `GET /resource/UnifiedCommentsResource/get/`
+with `options: { aggregated_pin_id: <pin.aggregated_pin_data.id>, comment_featured_ids: [], page_size: 10,
+redux_normalize_feed: true, is_reversed: false }`, same headers. `resource_response.data` is an **array** of
+`{ text, user: { username, full_name, image_medium_url }, created_at, is_edited, reaction_counts, id, … }`.
+A pin's `comment_count` can be 0 while the resource still returns comments, so fetch it whenever the pin has an
+aggregated id.
 
 **Promoted pins.** No ad card appeared in the sampled feeds, so the marker is a text match on the card
 ("Promoted", "Sponsored" and a few languages) in `PIN.isPromoted`; `PinResource`'s `is_promotable` is unrelated.
@@ -94,7 +96,8 @@ Refine it with a real ad card.
 
 ## Open questions
 
-- Comment resource name and payload (needs a pin with comments; the viewer shows the count and a link meanwhile).
+- Comments: only the first page (10) is fetched; the resource's envelope also carries a `bookmark` for paging if
+  we ever want more than that in the panel.
 - The promoted-pin marker is a label match in the card ("Promoted", "Sponsored", and a few languages). Refine it
   with a real ad card, and check whether Pinterest ever exposes it in the data instead.
 - Whether the feed gives a stable hook for "this pin is now visible" (for prefetching the next pins).

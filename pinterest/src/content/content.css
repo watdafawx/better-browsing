@@ -34,6 +34,11 @@
 .pin-lb-side h2 { font-size: 17px; line-height: 1.35; margin: 0 0 10px; }
 .pin-lb-desc { white-space: pre-wrap; margin: 0 0 12px; }
 .pin-lb-stats { color: #a9a9b3; font-size: 13px; }
+.pin-lb-comments-list { margin: 12px 0 4px; display: grid; gap: 10px; }
+.pin-lb-comment { font-size: 13px; line-height: 1.45; }
+.pin-lb-comment b { font-weight: 650; }
+.pin-lb-comment-text { color: #d8d8de; white-space: pre-wrap; }
+.pin-lb-edited { color: #7f7f89; font-size: 11px; }
 .pin-lb-comments { display: inline-block; margin-top: 10px; color: #8fc7ff; }
 .pin-lb-muted { color: #8b8b95; font-size: 13px; margin-top: 10px; }
 .pin-lb-film { display: flex; gap: 8px; padding: 10px 14px 14px; overflow-x: auto; }

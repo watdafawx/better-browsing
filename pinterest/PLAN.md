@@ -123,9 +123,9 @@ answering 403. Requests go through `PIN.getJSON` built on `content.fetch` in a F
    Pinterest's `V_720P` mp4 made hls.js unnecessary.
 3. **Lightbox — done.** Our viewer over the grid with its own id list (virtualised grid), `images.orig` at full
    size, `story_pin_data.pages` as a page sequence, our own video player, side panel, zoom, filmstrip, Esc/back.
-4. **Polish — done (one gap).** Promoted pins hidden (label match), sidebar/floating settings entries, Alt+W,
-   open-on-Pinterest and copy-link actions. Downloads were left out; comments link to Pinterest because no public
-   comment resource was found.
+4. **Polish — done.** Promoted pins hidden (label match), sidebar/floating settings entries, Alt+W,
+   open-on-Pinterest and copy-link actions, and comments in the side panel (`UnifiedCommentsResource`, first page,
+   link to the rest). Downloads were left out.
 5. **Tests + docs — done.** `test/pinterest-offline.mjs` on fixtures (grid, pin API, image/video/idea pins, a
    promoted card), in `test/all.mjs` for Chromium and Firefox; `README.md`, `CLAUDE.md` and this file updated.
 

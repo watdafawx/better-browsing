@@ -150,6 +150,9 @@
       if (!show) return this.side.replaceChildren();
       const d = pin || {};
       const comments = d.comment_count || 0;
+      const list = PIN.settings.lightboxComments !== false && d.aggregated_pin_data?.id
+        ? h('div', { class: 'pin-lb-comments-list' }, h('div', { class: 'pin-lb-muted' }, 'Loading comments…'))
+        : null;
       this.side.replaceChildren(...[
         d.pinner?.username ? h('div', { class: 'pin-lb-author' }, 'by @' + d.pinner.username) : null,
         h('h2', null, d.title || d.grid_title || ''),
@@ -157,10 +160,23 @@
         h('div', { class: 'pin-lb-stats' },
           d.repin_count != null ? `▲ ${num(d.repin_count)} saves` : '',
           comments ? ` · 💬 ${num(comments)} comments` : ''),
-        comments
-          ? h('a', { class: 'pin-lb-comments', href: 'https://www.pinterest.com/pin/' + this.entries[this.pi].id + '/', target: '_blank', rel: 'noopener' }, 'Read the comments on Pinterest ↗')
-          : h('div', { class: 'pin-lb-muted' }, 'No comments yet.'),
+        list,
+        h('a', { class: 'pin-lb-comments', href: 'https://www.pinterest.com/pin/' + this.entries[this.pi].id + '/', target: '_blank', rel: 'noopener' }, comments ? 'Read all comments on Pinterest ↗' : 'Open on Pinterest ↗'),
       ].filter(Boolean));
+      this.side.scrollTop = 0;
+      if (list) this.loadComments(list, pin);
+    }
+
+    loadComments(box, pin) {
+      const id = this.entries[this.pi]?.id;
+      PIN.comments(pin).then(list => {
+        if (this.entries[this.pi]?.id !== id || !box.isConnected) return;   // moved to another pin meanwhile
+        if (!list.length) { box.replaceChildren(h('div', { class: 'pin-lb-muted' }, 'No comments yet.')); return; }
+        box.replaceChildren(...list.map(c => h('div', { class: 'pin-lb-comment' },
+          h('b', null, '@' + (c.user?.username || 'someone')),
+          h('div', { class: 'pin-lb-comment-text' }, String(c.text || '').slice(0, 600)),
+          c.is_edited ? h('span', { class: 'pin-lb-edited' }, 'edited') : null)));
+      });
     }
 
     renderFilm() {

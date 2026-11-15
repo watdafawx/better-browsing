@@ -21,7 +21,8 @@ const PINS = {
   '111111': {
     id: '111111', title: 'Image pin', description: 'A description here',
     images: { orig: { url: 'https://i.pinimg.com/originals/a.jpg', width: 800, height: 1200 }, '736x': { url: 'https://i.pinimg.com/736x/a.jpg' } },
-    pinner: { username: 'alice' }, repin_count: 1234, comment_count: 3,
+    pinner: { username: 'alice' }, repin_count: 1234, comment_count: 2,
+    aggregated_pin_data: { id: 'AGG111' },
   },
   '222222': {
     id: '222222', title: 'Video pin', description: 'Moving pictures',
@@ -60,6 +61,12 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 await ctx.route(/pinterest\.com|pinimg\.com/, route => {
   const u = new URL(route.request().url());
   if (u.pathname.startsWith('/resource/')) {
+    if (/UnifiedCommentsResource/.test(u.pathname)) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resource_response: { status: 'success', code: 0, data: [
+        { text: 'first comment here', user: { username: 'bob' }, is_edited: false },
+        { text: 'second comment', user: { username: 'carol' }, is_edited: true },
+      ] } }) });
+    }
     let id = null;
     try { id = JSON.parse(u.searchParams.get('data') || '{}')?.options?.id; } catch {}
     const data = id ? (PINS[id] || null) : null;
@@ -105,7 +112,7 @@ r.promoted = await page.evaluate(() => {
 
 // click the first image pin: our viewer opens, not Pinterest's page
 await page.click('#pin-111111 a');
-await page.waitForTimeout(900);
+await page.waitForTimeout(1300);
 r.image = await page.evaluate(() => {
   const lb = document.querySelector('.pin-lb');
   const img = lb?.querySelector('img.pin-lb-media');
@@ -117,6 +124,7 @@ r.image = await page.evaluate(() => {
     title: lb?.querySelector('.pin-lb-title')?.textContent || '',
     side: lb?.querySelector('.pin-lb-side')?.innerText.replace(/\s+/g, ' ').slice(0, 120) || '',
     film: lb?.querySelectorAll('.pin-lb-film img').length || 0,
+    comments: lb?.querySelector('.pin-lb-comments-list')?.innerText.replace(/\s+/g, ' ').slice(0, 120) || '',
     locked: document.documentElement.classList.contains('pin-noscroll'),
     attr: document.documentElement.hasAttribute('data-pin-lb'),
   };
@@ -163,6 +171,7 @@ const checks = {
   'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
   'a pin opens our viewer, not Pinterest\'s page (orig image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /originals\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
+  'the pin\'s comments load in the side panel': /@bob/.test(r.image?.comments || '') && /first comment here/.test(r.image?.comments || '') && /second comment/.test(r.image?.comments || ''),
   'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1',
   'an idea pin is a page sequence': /page 1 \/ 2/.test(r.story1?.count || '') && /p1\.jpg$/.test(r.story1?.src || '') && /page 2 \/ 2/.test(r.story2?.count || '') && /p2\.jpg$/.test(r.story2?.src || ''),
   'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /originals\/b\.jpg$/.test(r.nextPin?.src || ''),

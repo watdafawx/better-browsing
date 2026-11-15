@@ -13,6 +13,7 @@ PIN.DEFAULTS = {
   // Lightbox
   lightbox: true,             // click a pin in the grid and open it in our viewer
   lightboxText: true,         // description, author and stats side panel
+  lightboxComments: true,     // the pin's comments in that panel
   lightboxFilmstrip: true,
 
   // Feed

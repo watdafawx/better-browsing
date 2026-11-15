@@ -96,8 +96,9 @@ milestones. What code must not forget:
 - The viewer (`lightbox.js`) replaces Pinterest's close-up: it opens on a capture-phase click of a grid card's
   `/pin/<id>/` link, keeps its own ordered id list (the grid is virtualised), fetches each pin with `PIN.pinData`
   and steps with the wheel/arrows/buttons. Idea pins step through `story_pin_data.pages` before moving on, images
-  use `images.orig`, videos use `video_list.V_720P` in our own player (`data-pin-own`), and the side panel shows
-  description/author/stats. Comments have no known resource yet, so the panel links to them on Pinterest.
+  use `images.orig` (idea pages `images.originals`), videos use `video_list.V_720P` in our own player
+  (`data-pin-own`), and the side panel shows description/author/stats plus the comments from
+  `PIN.comments()` (`UnifiedCommentsResource/get`, keyed by `aggregated_pin_data.id`, returns an array).
 - `hide.js` marks promoted cards (`PIN.isPromoted`, a label match) and one class on `<html>`
   (`.pin-hide-promoted`) hides them; the viewer skips them too.
 - Video: `main-world.js` owns the sound decision (`play`/`muted`/`volume`/`autoplay`), `video.js` publishes the
