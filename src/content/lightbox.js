@@ -68,6 +68,10 @@
       seen.add(key);
       out.push({ type: 'image', src: full, thumb: u });
     };
+    // An external video (redgifs, YouTube, …): Reddit's own <shreddit-player> in the feed is just a silent
+    // preview of it, so use the provider's player from the post's link instead.
+    const embedItem = RBE.embedFromUrl(el.getAttribute('content-href') || '');
+    if (embedItem) return [embedItem];
     const player = which() !== 'images' && el.querySelector('shreddit-player-2, shreddit-player');
     const hls = player && (player.getAttribute('src') || '');
     if (hls) return [{ type: 'rvideo', hls: hls.replace(/&amp;/g, '&'), fallback: '', poster: player.getAttribute('poster') || '' }];

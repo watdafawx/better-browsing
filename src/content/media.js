@@ -86,9 +86,9 @@
     }
 
     // Reddit-hosted video
-    const rv = src.secure_media?.reddit_video || src.media?.reddit_video || src.preview?.reddit_video_preview;
-    if (rv && (src.is_video || src.post_hint === 'hosted:video' || src.preview?.reddit_video_preview)) {
-      return { items: [{ type: 'rvideo', hls: fix(rv.hls_url), dash: fix(rv.dash_url), fallback: fix(rv.fallback_url), w: rv.width, h: rv.height, poster, gif: rv.is_gif }], kind: 'video' };
+    const hosted = src.secure_media?.reddit_video || src.media?.reddit_video;
+    if (hosted && (src.is_video || src.post_hint === 'hosted:video')) {
+      return { items: [{ type: 'rvideo', hls: fix(hosted.hls_url), dash: fix(hosted.dash_url), fallback: fix(hosted.fallback_url), w: hosted.width, h: hosted.height, poster, gif: hosted.is_gif }], kind: 'video' };
     }
 
     const url = fix(src.url_overridden_by_dest || src.url || '');
@@ -111,11 +111,36 @@
       if (m) return { items: [{ type: 'embed', src: m[1], w: src.secure_media_embed?.width, h: src.secure_media_embed?.height, url: /^https?:/i.test(url || '') ? url : '', site: src.media?.oembed?.provider_name || src.domain || '' }], kind: 'embed' };
     }
 
+    // Last resort: Reddit's own silent preview of an external video (it has no audio track; the provider's
+    // player above is preferred whenever the post carries one)
+    const prev = src.preview?.reddit_video_preview;
+    if (prev) {
+      return { items: [{ type: 'rvideo', hls: fix(prev.hls_url), dash: fix(prev.dash_url), fallback: fix(prev.fallback_url), w: prev.width, h: prev.height, poster, gif: prev.is_gif, preview: true }], kind: 'video' };
+    }
+
     // External link
     if (url && !src.is_self && !/reddit\.com\/(r|u|user)\//.test(url)) {
       return { items: [{ type: 'link', url, thumb: poster || (/^https?:/.test(src.thumbnail) ? src.thumbnail : ''), domain: src.domain }], kind: 'link' };
     }
     return { items: [], kind: 'self' };
+  };
+
+  // A provider's own player from a post's link. The feed's <shreddit-player> for an external video is only
+  // Reddit's silent preview of it, so when the API gives us no embed markup, build the provider player instead.
+  RBE.embedFromUrl = function (url) {
+    const u = fix(url || '');
+    if (!u) return null;
+    let m;
+    if ((m = /redgifs\.com\/(?:watch|ifr)\/([a-z0-9]+)/i.exec(u))) {
+      const id = m[1].toLowerCase();
+      return { type: 'embed', src: 'https://www.redgifs.com/ifr/' + id, url: 'https://redgifs.com/watch/' + id, site: 'RedGIFs' };
+    }
+    if ((m = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i.exec(u))) {
+      return { type: 'embed', src: 'https://www.youtube-nocookie.com/embed/' + m[1], url: u, site: 'YouTube' };
+    }
+    if (/\.gifv(\?|$)/i.test(u)) return { type: 'mp4', src: u.replace(/\.gifv/i, '.mp4'), thumb: '', silent: true };
+    if (/\.mp4(\?|$)/i.test(u)) return { type: 'mp4', src: u, thumb: '' };
+    return null;
   };
 
   RBE.imageItems = d => RBE.extractMedia(d).items.filter(i => i.type === 'image' || i.type === 'mp4');

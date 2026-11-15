@@ -18,6 +18,7 @@ const post = (id, extra = {}) => ({ name: 't3_' + id, id, title: 'Post ' + id, a
 const comment = (id, body, replies = '') => ({ kind: 't1', data: { name: 't1_' + id, id, author: 'bob', author_fullname: 't2_b', body_html: body, score: 5,
   created_utc: Date.now() / 1000 - 60, permalink: `/r/test/comments/aaa/post/${id}/`, replies } });
 const thread = id => {
+  if (id === 'rrr') return [{ data: { children: [] } }, { data: { children: [] } }];   // API has nothing: force the feed-markup fallback
   const p = id === 'vvv' ? post(id, { is_video: true, is_self: false, selftext_html: null,
     secure_media: { reddit_video: { hls_url: 'https://v.redd.it/x/HLSPlaylist.m3u8', fallback_url: 'https://v.redd.it/x/DASH_480.mp4', width: 640, height: 360 } } }) : post(id);
   const kids = [];
@@ -31,6 +32,9 @@ const feed = `<!doctype html><html><head><title>fixture</title></head><body>
 <shreddit-feed>
 ${['aaa', 'bbb', 'vvv', 'ccc'].map(id => `<article><shreddit-post id="t3_${id}" permalink="/r/test/comments/${id}/post_${id}/" post-type="${id === 'vvv' ? 'video' : 'text'}" post-title="Post ${id}" style="display:block;height:220px;border:1px solid #ccc;margin:8px">
 <a slot="full-post-link" href="/r/test/comments/${id}/post_${id}/">Post ${id}</a><div slot="text-body">body ${id}</div></shreddit-post></article>`).join('\n')}
+<article><shreddit-post id="t3_rrr" permalink="/r/test/comments/rrr/post_rrr/" post-type="video" content-href="https://redgifs.com/watch/tremendousthoughtfulneonrainbowfish" post-title="Redgifs" style="display:block;height:220px;border:1px solid #ccc;margin:8px">
+<a slot="full-post-link" href="/r/test/comments/rrr/post_rrr/">Redgifs</a>
+<shreddit-player src="https://v.redd.it/silent/HLSPlaylist.m3u8" poster="https://external-preview.redd.it/x.jpeg"></shreddit-player></shreddit-post></article>
 </shreddit-feed>
 <div style="height:2000px"></div></body></html>`;
 
@@ -48,9 +52,10 @@ const fixtures = async route => {
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
+  if (/redgifs\.com$/.test(u.hostname)) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><p>redgifs player</p>' });
   return route.fulfill({ status: 404, body: '' });
 };
-await ctx.route(/reddit\.com|redd\.it|redditstatic/, fixtures);
+await ctx.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
 
 const logs = [];
 const page = await ctx.newPage();
@@ -326,6 +331,25 @@ r.us = { built: true };
     return { href: a?.getAttribute('href') || '', frame: !!document.querySelector('.rbe-lb-stage iframe') };
   });
   await p2.keyboard.press('Escape');
+  // a redgifs post whose API data we don't get: the feed markup has only Reddit's silent <shreddit-player>
+  // preview, so we must build the provider's player from the post's link instead
+  r.us.redgifs = await p2.evaluate(async () => {
+    const probes = {
+      rg: RBE.embedFromUrl?.('https://redgifs.com/watch/tremendousthoughtfulneonrainbowfish'),
+      yt: RBE.embedFromUrl?.('https://www.youtube.com/watch?v=abc123&t=5'),
+      gifv: RBE.embedFromUrl?.('https://i.imgur.com/x.gifv'),
+      host: RBE.embedFromUrl?.('https://v.redd.it/x/HLSPlaylist.m3u8'),
+    };
+    RBE.openLightbox({ scope: 'feed', postId: 't3_rrr' });
+    await new Promise(r => setTimeout(r, 1500));
+    const s = document.querySelector('.rbe-lb-stage');
+    return {
+      iframe: s?.querySelector('iframe')?.src || '',
+      video: !!(s?.querySelector('video')),
+      rg: probes.rg?.src || '', yt: probes.yt?.src || '', gifv: probes.gifv?.src || '', host: probes.host,
+    };
+  });
+  await p2.keyboard.press('Escape');
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -374,6 +398,8 @@ const checks = {
   'userscript: a plain .mp4 link gets sound in the lightbox, and a refused start comes back on the next click': r.us.mp4?.there && r.us.mp4.blockedMuted === true && r.us.mp4.muted === false && Math.abs(r.us.mp4.vol - 0.1) < 0.01 && r.us.mp4.user === null,
   'userscript: the lightbox hands a Reddit video to Reddit\'s own player and takes it back': r.us.orig?.btn && r.us.orig.video && /^https:\/\/embed\.reddit\.com\/r\/test\/comments\/vvv\/post_vvv\/\?embed=true&showmedia=true/.test(r.us.orig.frame) && !/\.js(\?|$)/.test(r.us.orig.frame) && !r.us.orig.videoAfter && r.us.orig.videoBack && r.us.orig.frameGone,
   'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
+  'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
+  'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
 };
 
 let failed = 0;

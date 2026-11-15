@@ -151,6 +151,15 @@
     console.warn('[RBE] no HLS player for this video; using Reddit\'s silent MP4 fallback');
     if (!toldSilent) { toldSilent = true; RBE.toast?.('This video plays silent: its HLS stream did not load. Opening the post plays it with sound.'); }
   };
+  // A stream with no audio track at all (Reddit's silent preview of an external video, a GIF upload). Say it
+  // once instead of leaving a "why is there no sound" mystery.
+  let toldNoAudio = false;
+  const silentStream = v => {
+    if (v.dataset.rbeSilent) return;
+    v.dataset.rbeSilent = '1';
+    console.warn('[RBE] this video\'s stream has no audio track');
+    if (!toldNoAudio) { toldNoAudio = true; RBE.toast?.('This video has no sound track (Reddit\'s silent preview or a GIF upload).'); }
+  };
   function attach(v, item) {
     const fallback = () => {
       v._rbeHls?.destroy(); v._rbeHls = null;
@@ -161,6 +170,7 @@
       const hls = new Hls({ capLevelToPlayerSize: true, startLevel: -1 });
       hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { console.warn('[RBE] hls error', data.type, data.details); fallback(); } });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (!hls.audioTracks.length && !hls.levels.some(l => /mp4a|ac-3|ec-3|opus|flac|alac/i.test(l.attrs?.CODECS || ''))) silentStream(v);
         if (v.dataset.rbeWantPlay && v._rbeInView !== false && !v.dataset.rbeStarted) tryPlay(v);
       });
       hls.loadSource(item.hls);
