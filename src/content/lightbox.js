@@ -139,7 +139,7 @@
     originalEl(item, e) {
       const permalink = e?.data?.permalink || e?.el?.getAttribute('permalink') || '';
       const frame = h('iframe', { class: 'rbe-lb-orig-frame', src: RBE.redditEmbedSrc(permalink), title: 'Reddit player',
-        allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true, referrerpolicy: 'no-referrer-when-downgrade' });
+        allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true });
       return h('div', { class: 'rbe-lb-embed rbe-lb-orig', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
     }
     async items(pi) {
@@ -147,8 +147,8 @@
       if (!e) return [];
       if (!e.items) {
         try {
-          // prefetch a window of posts in one request
-          const ids = this.entries.slice(Math.max(0, pi - 2), pi + 8).map(x => x.id);
+          // prefetch a window of posts in one request (a smaller one when each post needs its own request)
+          const ids = this.entries.slice(Math.max(0, pi - 2), pi + (RBE.perPostFetch ? 3 : 8)).map(x => x.id);
           await RBE.getPosts(ids);
           const d = await RBE.getPost(e.id);
           e.data = d;
@@ -225,8 +225,12 @@
         return v;
       }
       if (item.type === 'embed') {
-        return h('div', { class: cls + ' rbe-lb-embed', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } },
-          h('iframe', { src: item.src, allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true, referrerpolicy: 'no-referrer-when-downgrade' }));
+        // The provider's own player, mounted only while it is on screen (see RBE.lazyFrame): a redgifs/YouTube
+        // frame far down the strip would otherwise play, with sound, behind the post you are reading.
+        const frame = h('iframe', { class: 'rbe-lb-embed-frame', title: item.site || 'Embedded video',
+          allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true });
+        RBE.lazyFrame(frame, item.src);
+        return h('div', { class: cls + ' rbe-lb-embed', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
       }
       if (item.type === 'text') {
         const d = e?.data || {}, body = e ? bodyHtml(e) : '';
@@ -269,6 +273,7 @@
       this.counter = h('span', { class: 'rbe-lb-count' });
       this.orig = h('a', { class: 'rbe-btn', target: '_blank', rel: 'noopener', title: 'Open original' }, '↗');
       this.origPlayer = h('button', { class: 'rbe-btn rbe-lb-orig-btn', title: 'Reddit\'s own player (O)', onclick: () => this.toggleOriginal() }, '⧉');
+      this.reloadBtn = h('button', { class: 'rbe-btn rbe-lb-reload-btn', title: 'Reload player', onclick: () => this.reloadMedia() }, '↻');
       this.caption = h('div', { class: 'rbe-lb-caption' });
       this.film = h('div', { class: 'rbe-lb-film' });
       this.sideOn = RBE.settings.lightboxText !== false;
@@ -276,7 +281,7 @@
       const bar = h('div', { class: 'rbe-lb-bar' },
         this.subIcon = h('span', { class: 'rbe-lb-subicon' }),
         h('div', { class: 'rbe-lb-info' }, this.title, this.meta),
-        this.counter, this.origPlayer, this.orig,
+        this.counter, this.origPlayer, this.reloadBtn, this.orig,
         this.siteSlot = h('span', { class: 'rbe-site-slot' }),
         RBE.embedButton(() => { const e = this.entries[this.pi]; return e?.data?.permalink || e?.el?.getAttribute('permalink'); }),
         h('button', { class: 'rbe-btn', title: 'Show/hide post text (T)', onclick: () => this.toggleSide() }, '📝'),
@@ -299,6 +304,11 @@
       const key = this.originalKey();
       if (this.original.has(key)) this.original.delete(key); else this.original.add(key);
       this.show();
+    }
+    // Provider players fail on their own side now and then (redgifs' API answers 401 for a while): reload it
+    reloadMedia() {
+      const f = this.media?.querySelector?.('iframe');
+      if (f) { RBE.reloadFrame(f); RBE.toast?.('Reloading player…'); }
     }
     renderSide() {
       const e = this.entries[this.pi], item = this.curItem;
@@ -397,6 +407,7 @@
       this.origPlayer.hidden = !this.canOriginal(item, e);
       this.origPlayer.classList.toggle('on', asOriginal);
       this.origPlayer.title = asOriginal ? 'Back to the built-in player (O)' : 'Reddit\'s own player (O)';
+      this.reloadBtn.hidden = item.type !== 'embed';
       this.root.classList.toggle('is-text', item.type === 'text');
       this.renderSide();
       // landing on a long text card: don't let leftover wheel momentum skip past it
@@ -507,10 +518,13 @@
           const sec = h('section', { class: 'rbe-lb-post' });
           const head = h('a', { class: 'rbe-lb-title', href: '#', onclick: e => { e.preventDefault(); this.pi = pi; this.openPost(); } }, d.title || '');
           const rv = items.find(it => this.canOriginal(it, ent));
+          const emb = items.find(it => it.type === 'embed');
           const swap = h('div', { class: 'rbe-lb-post-media' });
           const frames = items.map(it => h('figure', null, this.mediaEl(it, 'rbe-lb-media', ent), it.caption ? h('figcaption', null, it.caption) : null));
           swap.append(...frames);
           const origBtn = rv ? h('button', { class: 'rbe-btn rbe-lb-orig-btn', title: 'Reddit\'s own player' }, '⧉') : null;
+          const embBtn = emb ? h('button', { class: 'rbe-btn rbe-lb-reload-btn', title: 'Reload player' }, '↻') : null;
+          if (embBtn) embBtn.onclick = () => { const f = swap.querySelector('iframe'); if (f) RBE.reloadFrame(f); };
           if (origBtn) origBtn.onclick = () => {
             const on = !swap.classList.contains('orig');
             swap.classList.toggle('orig', on);
@@ -520,7 +534,7 @@
             else swap.replaceChildren(...frames);
           };
           sec.append(head,
-            h('div', { class: 'rbe-lb-meta' }, [d.subreddit_name_prefixed, items.length > 1 && items.length + ' items'].filter(Boolean).join(' · '), origBtn),
+            h('div', { class: 'rbe-lb-meta' }, [d.subreddit_name_prefixed, items.length > 1 && items.length + ' items'].filter(Boolean).join(' · '), origBtn, embBtn),
             body ? h('div', { class: 'md rbe-lb-body' , html: body }) : null,
             swap);
           if (it_isFirst(this)) sec.classList.add('first');

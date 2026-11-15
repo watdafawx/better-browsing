@@ -346,10 +346,26 @@ r.us = { built: true };
     return {
       iframe: s?.querySelector('iframe')?.src || '',
       video: !!(s?.querySelector('video')),
+      reload: !!document.querySelector('.rbe-lb-reload-btn'),
       rg: probes.rg?.src || '', yt: probes.yt?.src || '', gifv: probes.gifv?.src || '', host: probes.host,
     };
   });
   await p2.keyboard.press('Escape');
+  // provider players are mounted only while in view: the strip used to play one seven posts down
+  r.us.lazy = await p2.evaluate(async () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:0;top:4000px;width:300px;height:200px';
+    const f = document.createElement('iframe');
+    host.append(f); document.body.append(host);
+    RBE.lazyFrame(f, 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish');
+    await new Promise(r => setTimeout(r, 800));
+    const off = f.getAttribute('src') || '';
+    host.style.top = '0px';
+    await new Promise(r => setTimeout(r, 800));
+    const on = f.getAttribute('src') || '';
+    host.remove();
+    return { off, on };
+  });
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -400,6 +416,8 @@ const checks = {
   'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
   'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
   'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
+  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
 };
 
 let failed = 0;

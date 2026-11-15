@@ -32,6 +32,8 @@
   }
   RBE.getPosts = async function (ids) {
     ids = [...new Set(ids.filter(Boolean))];
+    // Both batch endpoints refused: each post costs its own request, so the lightbox asks for a smaller window
+    if (broken.info && broken.byId) RBE.perPostFetch = true;
     const need = ids.filter(id => !cache.has(id) && !pending.has(id));
     if (broken.info && broken.byId) {
       // per-post mode: each id gets its own promise so the post being opened isn't stuck behind prefetches

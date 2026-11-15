@@ -73,6 +73,35 @@
     noteAudio(v);
   };
 
+  // Provider players (<iframe>): mount only while near the viewport, and go back to about:blank when far away.
+  // A <video> can be paused from here; a redgifs/YouTube player's sound lives inside the frame, so the only way
+  // to stop an embed far down the strip from playing behind the post you are reading is to unload it.
+  const frameSrc = new WeakMap();
+  const frameIO = typeof IntersectionObserver === 'function' && new IntersectionObserver(entries => {
+    for (const e of entries) {
+      const f = e.target, src = frameSrc.get(f);
+      if (!src) continue;
+      if (e.isIntersecting) { if (f.getAttribute('src') !== src) f.src = src; }
+      else if (f.getAttribute('src')) f.src = 'about:blank';
+    }
+  }, { rootMargin: '30% 0px' });
+  RBE.lazyFrame = function (frame, src = '') {
+    if (!src) return frame;
+    frameSrc.set(frame, src);
+    if (frameIO) frameIO.observe(frame); else frame.src = src;
+    return frame;
+  };
+  // Reload a provider player: their API is flaky (the same call answers 401, then 200), so a fresh frame often
+  // brings the video back without closing the lightbox.
+  RBE.reloadFrame = function (f) {
+    const src = frameSrc.get(f) || f.getAttribute('src') || '';
+    const nf = f.cloneNode(false);
+    nf.removeAttribute('src');
+    f.replaceWith(nf);
+    if (src) RBE.lazyFrame(nf, src);
+    return nf;
+  };
+
   // play() that only falls back to muted when the browser really blocked audible autoplay.
   // Any other rejection (AbortError when hls.js swaps in its MediaSource while play() is pending,
   // NotSupportedError before a source exists) is not a sound problem; muting there silenced

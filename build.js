@@ -55,7 +55,7 @@ const reddit = site({
   srcDir: 'src', manifest: 'manifest.base.json', cssId: 'rbe-css',
   api: `RBE.api = bbStore('rbe-userscript-storage', true);`,
   extra: `const RBE_LOAD_HLS = () => { if (globalThis.Hls) return; (function () { var exports, module, define;
-${read('src/vendor/hls.min.js')}
+${read('src/vendor/hls.min.js').replace(/^\/\/# sourceMappingURL=.*$/m, '')}
 }).call(globalThis); };`,
   main: s => `if (!location.pathname.startsWith('/login')) ${s}`,
   panelJs: `RBE.openSettingsInPage = bbPanel({ cls: 'rbe-root rbe-us-settings', html: PANEL_HTML, css: PANEL_CSS,
