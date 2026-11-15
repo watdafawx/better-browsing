@@ -1,17 +1,16 @@
-// Offline smoke test: loads dist/chrome into Chromium and answers every reddit.com request from
-// fixtures below, so it never touches live Reddit. Run: npm test (after npm run build).
+// Offline smoke test: runs the userscript (dist/better-browsing.user.js) in Chromium and answers every
+// reddit.com request from fixtures below, so it never touches live Reddit. Run: npm test.
+// The second part runs it again in BROWSER (chromium, or firefox) for the panel, perf and away checks.
 import { chromium, firefox } from 'playwright';
 import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 import { awayChecks, awayOk } from './lib/away.mjs';
-import os from 'os'; import path from 'path'; import fs from 'fs'; import crypto from 'crypto';
+import path from 'path'; import fs from 'fs';
 
-const ext = path.resolve(process.argv[2] || 'dist/chrome');
-const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'rbe-'));
-const ctx = await chromium.launchPersistentContext(prof, {
-  headless: false,
-  args: ['--headless=new', `--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
-  viewport: { width: 1400, height: 900 },
-});
+const usFile = path.resolve('dist/better-browsing.user.js');
+if (!fs.existsSync(usFile)) { console.log('FAIL userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
+const b1 = await chromium.launch();
+const ctx = await b1.newContext({ viewport: { width: 1400, height: 900 } });
+await ctx.addInitScript({ path: usFile });
 
 const post = (id, extra = {}) => ({ name: 't3_' + id, id, title: 'Post ' + id, author: 'alice', author_fullname: 't2_a', subreddit: 'test',
   subreddit_name_prefixed: 'r/test', permalink: `/r/test/comments/${id}/post_${id}/`, created_utc: Date.now() / 1000 - 3600, score: 42, num_comments: 3,
@@ -19,6 +18,7 @@ const post = (id, extra = {}) => ({ name: 't3_' + id, id, title: 'Post ' + id, a
 const comment = (id, body, replies = '') => ({ kind: 't1', data: { name: 't1_' + id, id, author: 'bob', author_fullname: 't2_b', body_html: body, score: 5,
   created_utc: Date.now() / 1000 - 60, permalink: `/r/test/comments/aaa/post/${id}/`, replies } });
 const thread = id => {
+  if (id === 'rrr') return [{ data: { children: [] } }, { data: { children: [] } }];   // API has nothing: force the feed-markup fallback
   const p = id === 'vvv' ? post(id, { is_video: true, is_self: false, selftext_html: null,
     secure_media: { reddit_video: { hls_url: 'https://v.redd.it/x/HLSPlaylist.m3u8', fallback_url: 'https://v.redd.it/x/DASH_480.mp4', width: 640, height: 360 } } }) : post(id);
   const kids = [];
@@ -32,6 +32,9 @@ const feed = `<!doctype html><html><head><title>fixture</title></head><body>
 <shreddit-feed>
 ${['aaa', 'bbb', 'vvv', 'ccc'].map(id => `<article><shreddit-post id="t3_${id}" permalink="/r/test/comments/${id}/post_${id}/" post-type="${id === 'vvv' ? 'video' : 'text'}" post-title="Post ${id}" style="display:block;height:220px;border:1px solid #ccc;margin:8px">
 <a slot="full-post-link" href="/r/test/comments/${id}/post_${id}/">Post ${id}</a><div slot="text-body">body ${id}</div></shreddit-post></article>`).join('\n')}
+<article><shreddit-post id="t3_rrr" permalink="/r/test/comments/rrr/post_rrr/" post-type="video" content-href="https://redgifs.com/watch/tremendousthoughtfulneonrainbowfish" post-title="Redgifs" style="display:block;height:220px;border:1px solid #ccc;margin:8px">
+<a slot="full-post-link" href="/r/test/comments/rrr/post_rrr/">Redgifs</a>
+<shreddit-player src="https://v.redd.it/silent/HLSPlaylist.m3u8" poster="https://external-preview.redd.it/x.jpeg"></shreddit-player></shreddit-post></article>
 </shreddit-feed>
 <div style="height:2000px"></div></body></html>`;
 
@@ -49,17 +52,18 @@ const fixtures = async route => {
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
+  if (/redgifs\.com$/.test(u.hostname)) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><p>redgifs player</p>' });
   return route.fulfill({ status: 404, body: '' });
 };
-await ctx.route(/reddit\.com|redd\.it|redditstatic/, fixtures);
+await ctx.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
 
 const logs = [];
 const page = await ctx.newPage();
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning' || /RBE/.test(m.text())) logs.push(`[${m.type()}] ${m.text()}`); });
 page.on('pageerror', e => logs.push('[pageerror] ' + e.message));
 page.on('dialog', d => { logs.push('[DIALOG!] ' + d.message()); d.dismiss(); });
-const sw = ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker');
-sw.on('console', m => logs.push('[sw] ' + m.text()));
+// settings written the way the panel writes them (read-modify-write of storage.sync `settings`)
+const setSetting = (key, value) => page.evaluate(([k, v]) => RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, [k]: v } })), [key, value]);
 
 const r = {};
 await page.goto('https://www.reddit.com/r/test/');
@@ -130,14 +134,15 @@ r.reopenReqs = reqs.slice(n2).filter(q => /comments/.test(q.u)).length;
 await page.keyboard.press('Escape');
 await page.waitForTimeout(300);
 
-// video post → hls.js injected on demand, attaches MediaSource (blob:)
+// video post → hls.js runs on demand, attaches MediaSource (blob:)
 const v = await page.locator('shreddit-post#t3_vvv').boundingBox();
 await page.mouse.click(v.x + 200, v.y + 100);
 await page.waitForSelector('.rbe-viewer video', { timeout: 10000 });
 await page.waitForTimeout(2500);
 r.video = await page.evaluate(() => { const el = document.querySelector('.rbe-viewer video'); return { src: (el.currentSrc || el.getAttribute('src') || '').slice(0, 30), vol: el.volume, muted: el.muted, controls: el.controls }; });
+r.silentToast = await page.evaluate(() => document.getElementById('rbe-toast')?.textContent || '');
 // the controls toggle applies live; with it off a click plays/pauses
-const setNative = on => sw.evaluate(on => chrome.storage.sync.get('settings').then(({ settings = {} }) => chrome.storage.sync.set({ settings: { ...settings, nativeControls: on } })), on);
+const setNative = on => setSetting('nativeControls', on);
 await setNative(false);
 await page.waitForTimeout(500);
 r.nativeOff = await page.evaluate(() => { const el = document.querySelector('.rbe-viewer video'), e = new MouseEvent('click', { bubbles: true, cancelable: true }); el.dispatchEvent(e); return { controls: el.controls, handled: e.defaultPrevented }; });   // our click-to-toggle took it
@@ -201,33 +206,21 @@ r.lbPause = await page.evaluate(() => {
 });
 
 // settings change through storage reaches the page (filtered onChanged)
-await sw.evaluate(() => chrome.storage.sync.get('settings').then(({ settings = {} }) => chrome.storage.sync.set({ settings: { ...settings, theme: 'nord' } })));
+await setSetting('theme', 'nord');
 await page.waitForTimeout(500);
 r.themeApplied = await page.evaluate(() => document.documentElement.classList.contains('rbe-themed'));
-await sw.evaluate(() => chrome.storage.local.set({ accounts: { x: { savedAt: 1, cookies: [] } } }));
-await page.waitForTimeout(300);
 
 // reload: snapshot gives theme before storage read
 await page.reload();
 r.themedAtDomStart = await page.evaluate(() => document.documentElement.classList.contains('rbe-themed'));
 
-// extension popup still mounts the settings form (popup.js is shared with the userscript panel)
-const idSrc = process.platform === 'win32' ? Buffer.from(ext, 'utf16le') : Buffer.from(ext);
-const extId = [...crypto.createHash('sha256').update(idSrc).digest('hex').slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
-const pop = await ctx.newPage();
-await pop.goto(`chrome-extension://${extId}/popup/popup.html`).catch(() => {});
-await pop.waitForTimeout(600);
-r.popup = await pop.evaluate(() => ({ themes: document.querySelectorAll('#themes .theme').length, accounts: !!document.querySelector('[data-tab="accounts"]'), checked: [...document.querySelectorAll('input[type=checkbox][data-key]')].some(i => i.checked) })).catch(e => ({ err: e.message }));
-
 r.logs = logs;
-await ctx.close();
-fs.rmSync(prof, { recursive: true, force: true });
+await b1.close();
 
-// ---------- the combined userscript (dist/better-browsing.user.js), no extension ----------
-const usFile = path.resolve(path.dirname(ext), 'better-browsing.user.js');
-r.us = { built: fs.existsSync(usFile) };
-if (r.us.built) {
-  // BROWSER=firefox runs the userscript part in Firefox (the extension part above can only load in Chromium)
+// ---------- settings panel, lightbox, perf and away checks, in BROWSER ----------
+r.us = { built: true };
+{
+  // BROWSER=firefox runs this part in Firefox (the part above always runs in Chromium)
   const FF = process.env.BROWSER === 'firefox', bt = FF ? firefox : chromium;
   const launchOpts = FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {};
   r.us.browser = FF ? 'firefox' : 'chromium';
@@ -285,6 +278,94 @@ if (r.us.built) {
   await p2.waitForTimeout(800);
   r.us.lightbox = await p2.evaluate(() => { const lb = document.querySelector('.rbe-lb'); return lb && { fixed: getComputedStyle(lb).position === 'fixed', full: lb.getBoundingClientRect().width === innerWidth, img: [...lb.querySelectorAll('img')].some(i => /one\.png$/.test(i.src)), count: lb.querySelector('.rbe-lb-count')?.textContent }; });
   await p2.keyboard.press('Escape');
+  // a plain .mp4 link: silent in the lightbox before, though the post viewer played it with sound.
+  // A start the browser refuses (sound blocked) must come back on the next click, not stay muted.
+  r.us.mp4 = await p2.evaluate(() => new Promise(res => {
+    const P = HTMLMediaElement.prototype, orig = P.play;
+    let blocked = false;
+    P.play = function () {
+      if (!blocked && this.dataset.rbeOwn === '1') { blocked = true; return Promise.reject(new DOMException('blocked', 'NotAllowedError')); }
+      return orig.apply(this, arguments);
+    };
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));   // the click that opens the lightbox
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_mmm', id: 'mmm', title: 'Clip', author: 'a', subreddit_name_prefixed: 'r/test',
+      permalink: '/r/test/comments/mmm/c/', created_utc: 1, is_self: false, url: 'https://v.redd.it/x/clip.mp4' } });
+    setTimeout(() => {
+      const v = document.querySelector('.rbe-lb video');
+      const blockedMuted = !!v && v.muted;
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      setTimeout(() => {
+        P.play = orig;
+        res({ there: !!v, blockedMuted, muted: v?.muted, vol: v?.volume, user: v?.dataset.rbeUserAudio || null });
+      }, 400);
+    }, 500);
+  }));
+  await p2.keyboard.press('Escape');
+  await p2.waitForTimeout(200);
+  // a Reddit-hosted video: the bar can hand it to Reddit's own player and back
+  r.us.orig = await p2.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_vvv', id: 'vvv', title: 'Video', author: 'a',
+      subreddit_name_prefixed: 'r/test', permalink: '/r/test/comments/vvv/post_vvv/', created_utc: 1, is_video: true, is_self: false,
+      secure_media: { reddit_video: { hls_url: 'https://v.redd.it/x/HLSPlaylist.m3u8', fallback_url: 'https://v.redd.it/x/DASH_480.mp4', width: 640, height: 360 } } } });
+    const btn = () => document.querySelector('.rbe-lb-orig-btn');
+    await wait(900);
+    const out = { btn: !!btn(), video: !!document.querySelector('.rbe-lb-stage video') };
+    btn()?.click(); await wait(600);
+    out.frame = document.querySelector('.rbe-lb-stage iframe')?.src || '';
+    out.videoAfter = !!document.querySelector('.rbe-lb-stage video');
+    btn()?.click(); await wait(600);
+    out.videoBack = !!document.querySelector('.rbe-lb-stage video');
+    out.frameGone = !document.querySelector('.rbe-lb-stage iframe');
+    return out;
+  });
+  await p2.keyboard.press('Escape');
+  // an embedded player stays the provider's own iframe, and the bar links to the provider's page
+  r.us.embedOut = await p2.evaluate(async () => {
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_eee', id: 'eee', title: 'YT', author: 'a',
+      subreddit_name_prefixed: 'r/test', permalink: '/r/test/comments/eee/yt/', created_utc: 1, is_self: false,
+      url: 'https://www.youtube.com/watch?v=abc', media: { oembed: { provider_name: 'YouTube' } },
+      secure_media_embed: { content: '<iframe src="https://www.youtube.com/embed/abc"></iframe>' } } });
+    await new Promise(r => setTimeout(r, 700));
+    const a = document.querySelector('.rbe-lb-bar a[title^="Open at"]');
+    return { href: a?.getAttribute('href') || '', frame: !!document.querySelector('.rbe-lb-stage iframe') };
+  });
+  await p2.keyboard.press('Escape');
+  // a redgifs post whose API data we don't get: the feed markup has only Reddit's silent <shreddit-player>
+  // preview, so we must build the provider's player from the post's link instead
+  r.us.redgifs = await p2.evaluate(async () => {
+    const probes = {
+      rg: RBE.embedFromUrl?.('https://redgifs.com/watch/tremendousthoughtfulneonrainbowfish'),
+      yt: RBE.embedFromUrl?.('https://www.youtube.com/watch?v=abc123&t=5'),
+      gifv: RBE.embedFromUrl?.('https://i.imgur.com/x.gifv'),
+      host: RBE.embedFromUrl?.('https://v.redd.it/x/HLSPlaylist.m3u8'),
+    };
+    RBE.openLightbox({ scope: 'feed', postId: 't3_rrr' });
+    await new Promise(r => setTimeout(r, 1500));
+    const s = document.querySelector('.rbe-lb-stage');
+    return {
+      iframe: s?.querySelector('iframe')?.src || '',
+      video: !!(s?.querySelector('video')),
+      reload: !!document.querySelector('.rbe-lb-reload-btn'),
+      rg: probes.rg?.src || '', yt: probes.yt?.src || '', gifv: probes.gifv?.src || '', host: probes.host,
+    };
+  });
+  await p2.keyboard.press('Escape');
+  // provider players are mounted only while in view: the strip used to play one seven posts down
+  r.us.lazy = await p2.evaluate(async () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:0;top:4000px;width:300px;height:200px';
+    const f = document.createElement('iframe');
+    host.append(f); document.body.append(host);
+    RBE.lazyFrame(f, 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish');
+    await new Promise(r => setTimeout(r, 800));
+    const off = f.getAttribute('src') || '';
+    host.style.top = '0px';
+    await new Promise(r => setTimeout(r, 800));
+    const on = f.getAttribute('src') || '';
+    host.remove();
+    return { off, on };
+  });
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -309,6 +390,7 @@ const checks = {
   'Esc closes viewer': r.closed,
   'reopen uses cache': r.reopenReqs === 0,
   'video gets volume setting': r.video.vol === 0.1,
+  'silent MP4 fallback says so once instead of looking broken': /plays silent/.test(r.silentToast),
   ['userscript: idle page, the script changes nothing on its own, no feedback loop (' + r.us.browser + ')']: r.us.idle <= 10,
   ['userscript: on a page that keeps changing, the script adds little work (' + r.us.browser + ')']: costOk(r.us.browser, r.us.cost),
   'viewer video has browser controls; the setting turns them off (click toggles play) and on again, live': r.video.controls === true && r.nativeOff.controls === false && r.nativeOff.handled && r.nativeOn === true,
@@ -321,7 +403,6 @@ const checks = {
   'Discord button added next to Share in feed posts': r.feedEmbed && /redditez\.com\/r\/test\/comments\/ccc\//.test(r.feedEmbedCopied) && r.feedEmbedNoViewer,
   'Discord link button copies redditez.com permalink': /^https:\/\/redditez\.com\/r\/[^/]+\/comments\/[a-z0-9]+\//.test(r.embed?.copied || '') && r.embed.inPost,
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
-  'extension popup mounts settings form': r.popup.themes > 3 && r.popup.accounts && r.popup.checked,
   'userscript: theme, quick bar, gear; no accounts button': r.us.built && r.us.theme && r.us.css && r.us.quickbar && r.us.gear && !r.us.accountsBtn && /"mode":"volume"/.test(r.us.videoAttr),
   'userscript: viewer and comments': r.us.comments === 61,
   'userscript: hls.js loads on first video, volume applied': r.us.hlsBefore === false && r.us.hlsAfter === true && r.us.vol === 0.1,
@@ -330,6 +411,13 @@ const checks = {
   'userscript: Esc closes panel, no page errors': r.us.panelClosed && r.us.errors?.length === 0,
   'userscript: clicks inside the settings panel keep it open': r.us.openAfterClick === 'video',
   'userscript: image lightbox opens with the gallery': !!r.us.lightbox?.fixed && r.us.lightbox.full && r.us.lightbox.img && r.us.lightbox.count === '1/2',
+  'userscript: a plain .mp4 link gets sound in the lightbox, and a refused start comes back on the next click': r.us.mp4?.there && r.us.mp4.blockedMuted === true && r.us.mp4.muted === false && Math.abs(r.us.mp4.vol - 0.1) < 0.01 && r.us.mp4.user === null,
+  'userscript: the lightbox hands a Reddit video to Reddit\'s own player and takes it back': r.us.orig?.btn && r.us.orig.video && /^https:\/\/embed\.reddit\.com\/r\/test\/comments\/vvv\/post_vvv\/\?embed=true&showmedia=true/.test(r.us.orig.frame) && !/\.js(\?|$)/.test(r.us.orig.frame) && !r.us.orig.videoAfter && r.us.orig.videoBack && r.us.orig.frameGone,
+  'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
+  'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
+  'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
+  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
 };
 
 let failed = 0;

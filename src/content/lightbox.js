@@ -68,6 +68,10 @@
       seen.add(key);
       out.push({ type: 'image', src: full, thumb: u });
     };
+    // An external video (redgifs, YouTube, …): Reddit's own <shreddit-player> in the feed is just a silent
+    // preview of it, so use the provider's player from the post's link instead.
+    const embedItem = RBE.embedFromUrl(el.getAttribute('content-href') || '');
+    if (embedItem) return [embedItem];
     const player = which() !== 'images' && el.querySelector('shreddit-player-2, shreddit-player');
     const hls = player && (player.getAttribute('src') || '');
     if (hls) return [{ type: 'rvideo', hls: hls.replace(/&amp;/g, '&'), fallback: '', poster: player.getAttribute('poster') || '' }];
@@ -124,16 +128,27 @@
       document.querySelectorAll('video').forEach(v => { if (!v.closest('.rbe-root') && !v.paused) v.pause(); });
       this.startPi = pi;
       this.savedScroll = window.scrollY;
+      this.original = new Set();     // `${pi}:${ii}` items shown in Reddit's own player instead of ours
       window.addEventListener('keydown', this.onKey, true);
       this.root.focus({ preventScroll: true });
+    }
+    // A Reddit-hosted video we can hand to Reddit's own player (it has the post's permalink)
+    canOriginal(item, e) { return item?.type === 'rvideo' && !!(e?.data?.permalink || e?.el?.getAttribute('permalink')); }
+    originalKey() { return this.pi + ':' + this.ii; }
+    usingOriginal(item, e) { return this.canOriginal(item, e) && this.original.has(this.originalKey()); }
+    originalEl(item, e) {
+      const permalink = e?.data?.permalink || e?.el?.getAttribute('permalink') || '';
+      const frame = h('iframe', { class: 'rbe-lb-orig-frame', src: RBE.redditEmbedSrc(permalink), title: 'Reddit player',
+        allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true });
+      return h('div', { class: 'rbe-lb-embed rbe-lb-orig', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
     }
     async items(pi) {
       const e = this.entries[pi];
       if (!e) return [];
       if (!e.items) {
         try {
-          // prefetch a window of posts in one request
-          const ids = this.entries.slice(Math.max(0, pi - 2), pi + 8).map(x => x.id);
+          // prefetch a window of posts in one request (a smaller one when each post needs its own request)
+          const ids = this.entries.slice(Math.max(0, pi - 2), pi + (RBE.perPostFetch ? 3 : 8)).map(x => x.id);
           await RBE.getPosts(ids);
           const d = await RBE.getPost(e.id);
           e.data = d;
@@ -210,8 +225,12 @@
         return v;
       }
       if (item.type === 'embed') {
-        return h('div', { class: cls + ' rbe-lb-embed', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } },
-          h('iframe', { src: item.src, allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true, referrerpolicy: 'no-referrer-when-downgrade' }));
+        // The provider's own player, mounted only while it is on screen (see RBE.lazyFrame): a redgifs/YouTube
+        // frame far down the strip would otherwise play, with sound, behind the post you are reading.
+        const frame = h('iframe', { class: 'rbe-lb-embed-frame', title: item.site || 'Embedded video',
+          allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true });
+        RBE.lazyFrame(frame, item.src);
+        return h('div', { class: cls + ' rbe-lb-embed', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
       }
       if (item.type === 'text') {
         const d = e?.data || {}, body = e ? bodyHtml(e) : '';
@@ -224,8 +243,11 @@
           body ? h('div', { class: 'md rbe-lb-body', dir: 'auto', html: body }) : (l ? null : h('div', { class: 'rbe-muted' }, 'No text.')));
       }
       if (item.type === 'mp4') {
-        const v = h('video', { class: cls + (cls === 'rbe-lb-media' ? ' rbe-lb-video' : ''), src: item.src, poster: item.thumb || null, loop: true, playsinline: true, muted: true });
-        v.muted = true; v.autoplay = true; v.play().catch(() => {});
+        const v = h('video', { class: cls + (cls === 'rbe-lb-media' ? ' rbe-lb-video' : ''), src: item.src, poster: item.thumb || null, playsinline: true });
+        // A gif/gifv mp4 has no audio: autoplay it muted, as before. A plain .mp4 link can have sound, and the
+        // post viewer already plays it with sound; muting it here is what made those posts silent in the lightbox.
+        if (item.silent) { v.loop = true; v.muted = true; v.autoplay = true; v.play().catch(() => {}); }
+        else RBE.setupOwnVideo(v);
         return v;
       }
       const img = h('img', { class: cls, src: item.src, alt: item.caption || '', draggable: 'false', decoding: 'async' });
@@ -250,6 +272,8 @@
       this.meta = h('span', { class: 'rbe-lb-meta' });
       this.counter = h('span', { class: 'rbe-lb-count' });
       this.orig = h('a', { class: 'rbe-btn', target: '_blank', rel: 'noopener', title: 'Open original' }, '↗');
+      this.origPlayer = h('button', { class: 'rbe-btn rbe-lb-orig-btn', title: 'Reddit\'s own player (O)', onclick: () => this.toggleOriginal() }, '⧉');
+      this.reloadBtn = h('button', { class: 'rbe-btn rbe-lb-reload-btn', title: 'Reload player', onclick: () => this.reloadMedia() }, '↻');
       this.caption = h('div', { class: 'rbe-lb-caption' });
       this.film = h('div', { class: 'rbe-lb-film' });
       this.sideOn = RBE.settings.lightboxText !== false;
@@ -257,7 +281,7 @@
       const bar = h('div', { class: 'rbe-lb-bar' },
         this.subIcon = h('span', { class: 'rbe-lb-subicon' }),
         h('div', { class: 'rbe-lb-info' }, this.title, this.meta),
-        this.counter, this.orig,
+        this.counter, this.origPlayer, this.reloadBtn, this.orig,
         this.siteSlot = h('span', { class: 'rbe-site-slot' }),
         RBE.embedButton(() => { const e = this.entries[this.pi]; return e?.data?.permalink || e?.el?.getAttribute('permalink'); }),
         h('button', { class: 'rbe-btn', title: 'Show/hide post text (T)', onclick: () => this.toggleSide() }, '📝'),
@@ -273,6 +297,19 @@
       this.show();
     }
     toggleSide() { this.sideOn = !this.sideOn; this.sidePost = null; this.renderSide(); }
+    // Swap the built-in player for Reddit's own embed player, and back
+    toggleOriginal() {
+      const e = this.entries[this.pi];
+      if (!this.canOriginal(this.curItem, e)) return;
+      const key = this.originalKey();
+      if (this.original.has(key)) this.original.delete(key); else this.original.add(key);
+      this.show();
+    }
+    // Provider players fail on their own side now and then (redgifs' API answers 401 for a while): reload it
+    reloadMedia() {
+      const f = this.media?.querySelector?.('iframe');
+      if (f) { RBE.reloadFrame(f); RBE.toast?.('Reloading player…'); }
+    }
     renderSide() {
       const e = this.entries[this.pi], item = this.curItem;
       const d = e?.data || {};
@@ -326,6 +363,7 @@
       else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'a', 'k'].includes(k)) { e.preventDefault(); e.stopImmediatePropagation(); this.step(-1); }
       else if (k === 'c' || k === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); this.openPost(); }
       else if (k === 't') { e.preventDefault(); e.stopImmediatePropagation(); this.toggleSide(); }
+      else if (k === 'o') { e.preventDefault(); e.stopImmediatePropagation(); this.toggleOriginal(); }
     }
     async step(dir) {
       if (this.busy) return;
@@ -363,8 +401,13 @@
       RBE.destroyVideos(this.stage);
       this.resetZoom();
       this.curItem = item;
-      this.media = this.mediaEl(item, 'rbe-lb-media', e);
+      const asOriginal = this.usingOriginal(item, e);
+      this.media = asOriginal ? this.originalEl(item, e) : this.mediaEl(item, 'rbe-lb-media', e);
       this.stage.replaceChildren(this.media);
+      this.origPlayer.hidden = !this.canOriginal(item, e);
+      this.origPlayer.classList.toggle('on', asOriginal);
+      this.origPlayer.title = asOriginal ? 'Back to the built-in player (O)' : 'Reddit\'s own player (O)';
+      this.reloadBtn.hidden = item.type !== 'embed';
       this.root.classList.toggle('is-text', item.type === 'text');
       this.renderSide();
       // landing on a long text card: don't let leftover wheel momentum skip past it
@@ -378,7 +421,11 @@
       this.meta.textContent = [d.subreddit_name_prefixed, d.author && 'u/' + d.author, d.created_utc && RBE.ago(d.created_utc)].filter(Boolean).join(' · ');
       this.counter.textContent = [items.length > 1 && `${this.ii + 1}/${items.length}`, this.entries.length > 1 && `post ${this.pi + 1}/${this.entries.length}`].filter(Boolean).join('  ·  ');
       this.siteSlot.replaceChildren(...[RBE.siteButton(RBE.outLink(d) || RBE.outLink(e.el))].filter(Boolean));
-      this.orig.href = item.src || item.link?.url || 'https://www.reddit.com' + (d.permalink || e.el?.getAttribute('permalink') || '');
+      // ↗ for an embedded player: the provider's own page (the iframe URL often refuses to open directly)
+      const embedOut = item.type === 'embed' ? (item.url || item.src) : '';
+      const embedHost = (() => { try { return new URL(embedOut).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+      this.orig.href = embedOut || item.src || item.link?.url || 'https://www.reddit.com' + (d.permalink || e.el?.getAttribute('permalink') || '');
+      this.orig.title = embedOut ? 'Open at ' + (item.site || embedHost || 'source') : 'Open original';
       this.caption.textContent = item.caption || '';
       this.caption.hidden = !item.caption;
       // filmstrip
@@ -468,11 +515,28 @@
           const ent = this.entries[pi], d = ent.data || {};
           const isText = items[0].type === 'text';
           const body = !isText && RBE.settings.lightboxText !== false ? bodyHtml(ent) : '';
-          const sec = h('section', { class: 'rbe-lb-post' },
-            h('a', { class: 'rbe-lb-title', href: '#', onclick: e => { e.preventDefault(); this.pi = pi; this.openPost(); } }, d.title || ''),
-            h('div', { class: 'rbe-lb-meta' }, [d.subreddit_name_prefixed, items.length > 1 && items.length + ' items'].filter(Boolean).join(' · ')),
+          const sec = h('section', { class: 'rbe-lb-post' });
+          const head = h('a', { class: 'rbe-lb-title', href: '#', onclick: e => { e.preventDefault(); this.pi = pi; this.openPost(); } }, d.title || '');
+          const rv = items.find(it => this.canOriginal(it, ent));
+          const emb = items.find(it => it.type === 'embed');
+          const swap = h('div', { class: 'rbe-lb-post-media' });
+          const frames = items.map(it => h('figure', null, this.mediaEl(it, 'rbe-lb-media', ent), it.caption ? h('figcaption', null, it.caption) : null));
+          swap.append(...frames);
+          const origBtn = rv ? h('button', { class: 'rbe-btn rbe-lb-orig-btn', title: 'Reddit\'s own player' }, '⧉') : null;
+          const embBtn = emb ? h('button', { class: 'rbe-btn rbe-lb-reload-btn', title: 'Reload player' }, '↻') : null;
+          if (embBtn) embBtn.onclick = () => { const f = swap.querySelector('iframe'); if (f) RBE.reloadFrame(f); };
+          if (origBtn) origBtn.onclick = () => {
+            const on = !swap.classList.contains('orig');
+            swap.classList.toggle('orig', on);
+            origBtn.classList.toggle('on', on);
+            origBtn.title = on ? 'Back to the built-in player' : 'Reddit\'s own player';
+            if (on) { RBE.destroyVideos(swap); swap.replaceChildren(this.originalEl(rv, ent)); }
+            else swap.replaceChildren(...frames);
+          };
+          sec.append(head,
+            h('div', { class: 'rbe-lb-meta' }, [d.subreddit_name_prefixed, items.length > 1 && items.length + ' items'].filter(Boolean).join(' · '), origBtn, embBtn),
             body ? h('div', { class: 'md rbe-lb-body' , html: body }) : null,
-            items.map(it => h('figure', null, this.mediaEl(it, 'rbe-lb-media', ent), it.caption ? h('figcaption', null, it.caption) : null)));
+            swap);
           if (it_isFirst(this)) sec.classList.add('first');
           this.col.insertBefore(sec, this.sentinel);
           if (this.firstJump) {

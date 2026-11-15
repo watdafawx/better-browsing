@@ -32,6 +32,8 @@
   }
   RBE.getPosts = async function (ids) {
     ids = [...new Set(ids.filter(Boolean))];
+    // Both batch endpoints refused: each post costs its own request, so the lightbox asks for a smaller window
+    if (broken.info && broken.byId) RBE.perPostFetch = true;
     const need = ids.filter(id => !cache.has(id) && !pending.has(id));
     if (broken.info && broken.byId) {
       // per-post mode: each id gets its own promise so the post being opened isn't stuck behind prefetches
@@ -79,28 +81,28 @@
         const m = src.media_metadata[it.media_id];
         if (!m || m.status !== 'valid' || !m.s) continue;
         const thumb = fix((m.p && (m.p[1] || m.p[0]) || {}).u || m.s.u || m.s.gif);
-        if (m.e === 'AnimatedImage') items.push({ type: m.s.mp4 ? 'mp4' : 'image', src: fix(m.s.mp4 || m.s.gif), thumb, w: m.s.x, h: m.s.y, caption: it.caption });
+        if (m.e === 'AnimatedImage') items.push({ type: m.s.mp4 ? 'mp4' : 'image', src: fix(m.s.mp4 || m.s.gif), thumb, w: m.s.x, h: m.s.y, caption: it.caption, silent: true });
         else items.push({ type: 'image', src: fix(m.s.u), thumb, w: m.s.x, h: m.s.y, caption: it.caption });
       }
       return { items, kind: 'gallery' };
     }
 
     // Reddit-hosted video
-    const rv = src.secure_media?.reddit_video || src.media?.reddit_video || src.preview?.reddit_video_preview;
-    if (rv && (src.is_video || src.post_hint === 'hosted:video' || src.preview?.reddit_video_preview)) {
-      return { items: [{ type: 'rvideo', hls: fix(rv.hls_url), dash: fix(rv.dash_url), fallback: fix(rv.fallback_url), w: rv.width, h: rv.height, poster, gif: rv.is_gif }], kind: 'video' };
+    const hosted = src.secure_media?.reddit_video || src.media?.reddit_video;
+    if (hosted && (src.is_video || src.post_hint === 'hosted:video')) {
+      return { items: [{ type: 'rvideo', hls: fix(hosted.hls_url), dash: fix(hosted.dash_url), fallback: fix(hosted.fallback_url), w: hosted.width, h: hosted.height, poster, gif: hosted.is_gif }], kind: 'video' };
     }
 
     const url = fix(src.url_overridden_by_dest || src.url || '');
 
-    // imgur gifv / direct mp4
-    if (/\.gifv(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url.replace(/\.gifv/i, '.mp4'), thumb: poster }], kind: 'image' };
+    // imgur gifv / direct mp4. A gifv has no sound; a plain .mp4 link (the post page plays it with sound) may.
+    if (/\.gifv(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url.replace(/\.gifv/i, '.mp4'), thumb: poster, silent: true }], kind: 'image' };
     if (/\.mp4(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url, thumb: poster }], kind: 'video' };
 
     // Image (gif → use mp4 variant when present for smoothness)
     if (src.post_hint === 'image' || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url) || /i\.redd\.it/.test(url)) {
       const mp4 = preview?.variants?.mp4?.source?.url;
-      if (/\.gif(\?|$)/i.test(url) && mp4) return { items: [{ type: 'mp4', src: fix(mp4), thumb: poster, w: preview.source.width, h: preview.source.height }], kind: 'image' };
+      if (/\.gif(\?|$)/i.test(url) && mp4) return { items: [{ type: 'mp4', src: fix(mp4), thumb: poster, w: preview.source.width, h: preview.source.height, silent: true }], kind: 'image' };
       return { items: [{ type: 'image', src: url, thumb: poster || url, w: preview?.source.width, h: preview?.source.height }], kind: 'image' };
     }
 
@@ -111,6 +113,13 @@
       if (m) return { items: [{ type: 'embed', src: m[1], w: src.secure_media_embed?.width, h: src.secure_media_embed?.height, url: /^https?:/i.test(url || '') ? url : '', site: src.media?.oembed?.provider_name || src.domain || '' }], kind: 'embed' };
     }
 
+    // Last resort: Reddit's own silent preview of an external video (it has no audio track; the provider's
+    // player above is preferred whenever the post carries one)
+    const prev = src.preview?.reddit_video_preview;
+    if (prev) {
+      return { items: [{ type: 'rvideo', hls: fix(prev.hls_url), dash: fix(prev.dash_url), fallback: fix(prev.fallback_url), w: prev.width, h: prev.height, poster, gif: prev.is_gif, preview: true }], kind: 'video' };
+    }
+
     // External link
     if (url && !src.is_self && !/reddit\.com\/(r|u|user)\//.test(url)) {
       return { items: [{ type: 'link', url, thumb: poster || (/^https?:/.test(src.thumbnail) ? src.thumbnail : ''), domain: src.domain }], kind: 'link' };
@@ -118,5 +127,35 @@
     return { items: [], kind: 'self' };
   };
 
+  // A provider's own player from a post's link. The feed's <shreddit-player> for an external video is only
+  // Reddit's silent preview of it, so when the API gives us no embed markup, build the provider player instead.
+  RBE.embedFromUrl = function (url) {
+    const u = fix(url || '');
+    if (!u) return null;
+    let m;
+    if ((m = /redgifs\.com\/(?:watch|ifr)\/([a-z0-9]+)/i.exec(u))) {
+      const id = m[1].toLowerCase();
+      return { type: 'embed', src: 'https://www.redgifs.com/ifr/' + id, url: 'https://redgifs.com/watch/' + id, site: 'RedGIFs' };
+    }
+    if ((m = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i.exec(u))) {
+      return { type: 'embed', src: 'https://www.youtube-nocookie.com/embed/' + m[1], url: u, site: 'YouTube' };
+    }
+    if (/\.gifv(\?|$)/i.test(u)) return { type: 'mp4', src: u.replace(/\.gifv/i, '.mp4'), thumb: '', silent: true };
+    if (/\.mp4(\?|$)/i.test(u)) return { type: 'mp4', src: u, thumb: '' };
+    return null;
+  };
+
   RBE.imageItems = d => RBE.extractMedia(d).items.filter(i => i.type === 'image' || i.type === 'mp4');
+
+  // Reddit's own embed player for a post, as an iframe URL. This is the URL Reddit's own widgets.js builds
+  // for an embedded post: embed.reddit.com<permalink>?embed=true&showmedia=true&…
+  // (oEmbed is not reliable here: for many posts `html` is the blockquote + widgets.js snippet, whose first
+  // src is the script, not a player — that is how a .js file ended up in the lightbox.)
+  RBE.redditEmbedSrc = function (permalink) {
+    const path = (permalink || '').replace(/^https?:\/\/[^/]+/i, '').replace(/\/?$/, '/');
+    if (!path || path === '/') return '';
+    const q = new URLSearchParams({ embed: 'true', showmedia: 'true', ref_source: 'embed', ref: 'share',
+      utm_medium: 'widgets', utm_source: 'embedv2', utm_term: '23' });
+    return `https://embed.reddit.com${path}?${q}`;
+  };
 })();

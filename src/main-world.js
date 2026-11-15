@@ -34,7 +34,9 @@
   readCfg();
   new MutationObserver(readCfg).observe(document.documentElement, { attributes: true, attributeFilter: ['data-rbe-video'] });
   const cfg = () => cfgCache;
-  const active = el => { const m = cfgCache.mode; return !!m && m !== 'default' && el instanceof HTMLVideoElement && !el.closest?.('.rbe-root'); };
+  // Our own players (viewer, lightbox) are built before they are attached, so `.rbe-root` alone misses them
+  const ours = el => !!(el.dataset?.rbeOwn || el.closest?.('.rbe-root'));
+  const active = el => { const m = cfgCache.mode; return !!m && m !== 'default' && el instanceof HTMLVideoElement && !ours(el); };
 
   // Videos that had to start muted because the browser blocked audible autoplay; unmute on first interaction.
   const waitingForGesture = new Set();
@@ -62,7 +64,7 @@
 
   // While our lightbox is open (<html data-rbe-lb>), Reddit's players behind it stay paused.
   const lbOpen = () => document.documentElement.hasAttribute('data-rbe-lb');
-  const behindLb = el => lbOpen() && el instanceof HTMLVideoElement && !el.closest?.('.rbe-root');
+  const behindLb = el => lbOpen() && el instanceof HTMLVideoElement && !ours(el);
   function pausePlayed() { for (const v of played) { if (!v.isConnected) played.delete(v); else if (!v.paused) v.pause(); } }
   new MutationObserver(() => { if (lbOpen()) pausePlayed(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-rbe-lb'] });
   // players inside shadow roots: catch anything that starts anyway (autoplay attribute, internal resume)
@@ -70,7 +72,7 @@
   const played = new Set();   // for the safety net below (media events don't leave shadow roots)
   P.play = function () {
     if (behindLb(this)) return Promise.resolve();
-    if (this instanceof HTMLVideoElement && !this.closest?.('.rbe-root')) { // so the lightbox can pause it, even inside shadow DOM
+    if (this instanceof HTMLVideoElement && !ours(this)) { // so the lightbox can pause it, even inside shadow DOM
       if (played.size > 40) for (const v of played) if (!v.isConnected) played.delete(v);
       played.add(this);
     }
