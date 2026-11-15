@@ -135,6 +135,7 @@ await page.mouse.click(v.x + 200, v.y + 100);
 await page.waitForSelector('.rbe-viewer video', { timeout: 10000 });
 await page.waitForTimeout(2500);
 r.video = await page.evaluate(() => { const el = document.querySelector('.rbe-viewer video'); return { src: (el.currentSrc || el.getAttribute('src') || '').slice(0, 30), vol: el.volume, muted: el.muted, controls: el.controls }; });
+r.silentToast = await page.evaluate(() => document.getElementById('rbe-toast')?.textContent || '');
 // the controls toggle applies live; with it off a click plays/pauses
 const setNative = on => setSetting('nativeControls', on);
 await setNative(false);
@@ -320,6 +321,7 @@ const checks = {
   'Esc closes viewer': r.closed,
   'reopen uses cache': r.reopenReqs === 0,
   'video gets volume setting': r.video.vol === 0.1,
+  'silent MP4 fallback says so once instead of looking broken': /plays silent/.test(r.silentToast),
   ['userscript: idle page, the script changes nothing on its own, no feedback loop (' + r.us.browser + ')']: r.us.idle <= 10,
   ['userscript: on a page that keeps changing, the script adds little work (' + r.us.browser + ')']: costOk(r.us.browser, r.us.cost),
   'viewer video has browser controls; the setting turns them off (click toggles play) and on again, live': r.video.controls === true && r.nativeOff.controls === false && r.nativeOff.handled && r.nativeOn === true,
