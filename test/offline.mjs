@@ -272,6 +272,30 @@ r.us = { built: true };
   await p2.waitForTimeout(800);
   r.us.lightbox = await p2.evaluate(() => { const lb = document.querySelector('.rbe-lb'); return lb && { fixed: getComputedStyle(lb).position === 'fixed', full: lb.getBoundingClientRect().width === innerWidth, img: [...lb.querySelectorAll('img')].some(i => /one\.png$/.test(i.src)), count: lb.querySelector('.rbe-lb-count')?.textContent }; });
   await p2.keyboard.press('Escape');
+  // a plain .mp4 link: silent in the lightbox before, though the post viewer played it with sound.
+  // A start the browser refuses (sound blocked) must come back on the next click, not stay muted.
+  r.us.mp4 = await p2.evaluate(() => new Promise(res => {
+    const P = HTMLMediaElement.prototype, orig = P.play;
+    let blocked = false;
+    P.play = function () {
+      if (!blocked && this.dataset.rbeOwn === '1') { blocked = true; return Promise.reject(new DOMException('blocked', 'NotAllowedError')); }
+      return orig.apply(this, arguments);
+    };
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));   // the click that opens the lightbox
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_mmm', id: 'mmm', title: 'Clip', author: 'a', subreddit_name_prefixed: 'r/test',
+      permalink: '/r/test/comments/mmm/c/', created_utc: 1, is_self: false, url: 'https://v.redd.it/x/clip.mp4' } });
+    setTimeout(() => {
+      const v = document.querySelector('.rbe-lb video');
+      const blockedMuted = !!v && v.muted;
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      setTimeout(() => {
+        P.play = orig;
+        res({ there: !!v, blockedMuted, muted: v?.muted, vol: v?.volume, user: v?.dataset.rbeUserAudio || null });
+      }, 400);
+    }, 500);
+  }));
+  await p2.keyboard.press('Escape');
+  await p2.waitForTimeout(200);
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -316,6 +340,7 @@ const checks = {
   'userscript: Esc closes panel, no page errors': r.us.panelClosed && r.us.errors?.length === 0,
   'userscript: clicks inside the settings panel keep it open': r.us.openAfterClick === 'video',
   'userscript: image lightbox opens with the gallery': !!r.us.lightbox?.fixed && r.us.lightbox.full && r.us.lightbox.img && r.us.lightbox.count === '1/2',
+  'userscript: a plain .mp4 link gets sound in the lightbox, and a refused start comes back on the next click': r.us.mp4?.there && r.us.mp4.blockedMuted === true && r.us.mp4.muted === false && Math.abs(r.us.mp4.vol - 0.1) < 0.01 && r.us.mp4.user === null,
 };
 
 let failed = 0;

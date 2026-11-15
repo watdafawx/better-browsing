@@ -62,6 +62,17 @@
   // safety net for players that swap videos inside shadow roots (no light-DOM mutation); skip in background tabs
   setInterval(() => { if (!document.hidden) scan(document); }, 3000);
 
+  // Our own audio writes on our own videos must never be taken for the user's choice: that would stop the
+  // unmute-on-click below and leave a video silent for good.
+  const mine = new WeakMap();          // video -> [muted, volume] we last left it at
+  const noteAudio = v => mine.set(v, [v.muted, v.volume]);
+  const isMineAudio = v => { const m = mine.get(v); return !!m && m[0] === v.muted && Math.abs(m[1] - v.volume) < 0.01; };
+  const setAudio = (v, { muted = v.muted, volume = v.volume } = {}) => {
+    if (volume !== v.volume) v.volume = volume;
+    if (muted !== v.muted) v.muted = muted;
+    noteAudio(v);
+  };
+
   // play() that only falls back to muted when the browser really blocked audible autoplay.
   // Any other rejection (AbortError when hls.js swaps in its MediaSource while play() is pending,
   // NotSupportedError before a source exists) is not a sound problem; muting there silenced
@@ -71,8 +82,11 @@
       if (err && err.name === 'NotAllowedError' && !v.muted) {
         // Firefox refuses sound when play() comes after the click's activation ran out (hls.js still loading).
         // Start muted, and give the sound back on the next click or key press.
-        v.muted = true;
-        const back = () => { ['pointerdown', 'keydown'].forEach(t => removeEventListener(t, back, true)); if (v.isConnected && v.muted && !v.dataset.rbeUserAudio) v.muted = !(+RBE.settings.videoVolume) || RBE.settings.videoMode === 'muted'; };
+        setAudio(v, { muted: true });
+        const back = () => {
+          ['pointerdown', 'keydown'].forEach(t => removeEventListener(t, back, true));
+          if (v.isConnected && v.muted && !v.dataset.rbeUserAudio) setAudio(v, { muted: !(+RBE.settings.videoVolume) || RBE.settings.videoMode === 'muted' });
+        };
         ['pointerdown', 'keydown'].forEach(t => addEventListener(t, back, true));
         return v.play().catch(() => {});
       }
@@ -98,10 +112,10 @@
     v.dataset.rbeOwn = '1';
     ownControls(v);
     const vol = Math.max(0, Math.min(1, (+s.videoVolume || 0) / 100));
-    if (s.videoMode === 'muted') v.muted = true;
-    else if (s.videoMode === 'volume' || s.videoMode === 'off') { v.volume = vol; v.muted = vol === 0; }
+    if (s.videoMode === 'muted') setAudio(v, { muted: true });
+    else if (s.videoMode === 'volume' || s.videoMode === 'off') setAudio(v, { muted: vol === 0, volume: vol });
     const wantsPlay = autoplay && s.videoMode !== 'off';
-    v.addEventListener('volumechange', () => { if (gesture()) v.dataset.rbeUserAudio = '1'; });
+    v.addEventListener('volumechange', () => { if (!isMineAudio(v) && gesture()) v.dataset.rbeUserAudio = '1'; });
     if (wantsPlay) {
       v.dataset.rbeWantPlay = '1'; // hls.js retries play once the stream is ready
       // Out of view (strip neighbours, lower in the viewer): don't start; the observer starts it when it shows
@@ -129,10 +143,18 @@
     }
     attach(v, item);
   };
+  // Reddit's fallback_url is the video track alone, so a video left on it plays silent. Say so once
+  // instead of leaving the lightbox looking broken.
+  let toldSilent = false;
+  const silentFallback = v => {
+    v.dataset.rbeSilent = '1';
+    console.warn('[RBE] no HLS player for this video; using Reddit\'s silent MP4 fallback');
+    if (!toldSilent) { toldSilent = true; RBE.toast?.('This video plays silent: its HLS stream did not load. Opening the post plays it with sound.'); }
+  };
   function attach(v, item) {
     const fallback = () => {
       v._rbeHls?.destroy(); v._rbeHls = null;
-      if (item.fallback && v.getAttribute('src') !== item.fallback) { v.src = item.fallback; if (v.dataset.rbeWantPlay) v.play().catch(() => {}); }
+      if (item.fallback && v.getAttribute('src') !== item.fallback) { silentFallback(v); v.src = item.fallback; if (v.dataset.rbeWantPlay) v.play().catch(() => {}); }
     };
     // Prefer hls.js: newer Chrome claims native HLS support but stalls at 0:00 on Reddit's streams
     if (item.hls && globalThis.Hls && Hls.isSupported()) {
@@ -151,6 +173,7 @@
       v.addEventListener('error', fallback, { once: true });
       return;
     }
+    if (item.fallback) silentFallback(v);
     v.src = item.fallback;
   }
   RBE.destroyVideos = root => root.querySelectorAll('video').forEach(v => { v._rbeDead = true; v.pause(); v._rbeHls?.destroy(); v.removeAttribute('src'); v.load(); });

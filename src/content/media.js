@@ -79,7 +79,7 @@
         const m = src.media_metadata[it.media_id];
         if (!m || m.status !== 'valid' || !m.s) continue;
         const thumb = fix((m.p && (m.p[1] || m.p[0]) || {}).u || m.s.u || m.s.gif);
-        if (m.e === 'AnimatedImage') items.push({ type: m.s.mp4 ? 'mp4' : 'image', src: fix(m.s.mp4 || m.s.gif), thumb, w: m.s.x, h: m.s.y, caption: it.caption });
+        if (m.e === 'AnimatedImage') items.push({ type: m.s.mp4 ? 'mp4' : 'image', src: fix(m.s.mp4 || m.s.gif), thumb, w: m.s.x, h: m.s.y, caption: it.caption, silent: true });
         else items.push({ type: 'image', src: fix(m.s.u), thumb, w: m.s.x, h: m.s.y, caption: it.caption });
       }
       return { items, kind: 'gallery' };
@@ -93,14 +93,14 @@
 
     const url = fix(src.url_overridden_by_dest || src.url || '');
 
-    // imgur gifv / direct mp4
-    if (/\.gifv(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url.replace(/\.gifv/i, '.mp4'), thumb: poster }], kind: 'image' };
+    // imgur gifv / direct mp4. A gifv has no sound; a plain .mp4 link (the post page plays it with sound) may.
+    if (/\.gifv(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url.replace(/\.gifv/i, '.mp4'), thumb: poster, silent: true }], kind: 'image' };
     if (/\.mp4(\?|$)/i.test(url)) return { items: [{ type: 'mp4', src: url, thumb: poster }], kind: 'video' };
 
     // Image (gif → use mp4 variant when present for smoothness)
     if (src.post_hint === 'image' || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url) || /i\.redd\.it/.test(url)) {
       const mp4 = preview?.variants?.mp4?.source?.url;
-      if (/\.gif(\?|$)/i.test(url) && mp4) return { items: [{ type: 'mp4', src: fix(mp4), thumb: poster, w: preview.source.width, h: preview.source.height }], kind: 'image' };
+      if (/\.gif(\?|$)/i.test(url) && mp4) return { items: [{ type: 'mp4', src: fix(mp4), thumb: poster, w: preview.source.width, h: preview.source.height, silent: true }], kind: 'image' };
       return { items: [{ type: 'image', src: url, thumb: poster || url, w: preview?.source.width, h: preview?.source.height }], kind: 'image' };
     }
 

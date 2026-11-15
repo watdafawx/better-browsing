@@ -224,8 +224,11 @@
           body ? h('div', { class: 'md rbe-lb-body', dir: 'auto', html: body }) : (l ? null : h('div', { class: 'rbe-muted' }, 'No text.')));
       }
       if (item.type === 'mp4') {
-        const v = h('video', { class: cls + (cls === 'rbe-lb-media' ? ' rbe-lb-video' : ''), src: item.src, poster: item.thumb || null, loop: true, playsinline: true, muted: true });
-        v.muted = true; v.autoplay = true; v.play().catch(() => {});
+        const v = h('video', { class: cls + (cls === 'rbe-lb-media' ? ' rbe-lb-video' : ''), src: item.src, poster: item.thumb || null, playsinline: true });
+        // A gif/gifv mp4 has no audio: autoplay it muted, as before. A plain .mp4 link can have sound, and the
+        // post viewer already plays it with sound; muting it here is what made those posts silent in the lightbox.
+        if (item.silent) { v.loop = true; v.muted = true; v.autoplay = true; v.play().catch(() => {}); }
+        else RBE.setupOwnVideo(v);
         return v;
       }
       const img = h('img', { class: cls, src: item.src, alt: item.caption || '', draggable: 'false', decoding: 'async' });
