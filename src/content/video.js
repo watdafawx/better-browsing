@@ -21,6 +21,13 @@
     const s = RBE.settings;
     for (const e of entries) {
       const v = e.target;
+      if (v.dataset.rbeOwn) {
+        v._rbeInView = e.isIntersecting;
+        if (e.isIntersecting) v._rbeSeen = true;
+        else if (!v._rbeSeen && !v.paused) { v.pause(); delete v.dataset.rbeStarted; continue; }   // started before we knew it is out of view
+        // our own video that wanted to autoplay but was out of view (lightbox strip, long viewer): start it now
+        if (e.isIntersecting && v.dataset.rbeWantPlay && !v.dataset.rbeStarted && !away()) { tryPlay(v); continue; }
+      }
       if (!e.isIntersecting && s.videoPauseOffscreen && !v.paused) { v.pause(); v.dataset.rbePausedOffscreen = '1'; }
       else if (e.isIntersecting && v.dataset.rbePausedOffscreen && s.videoMode !== 'off' && !away()) { delete v.dataset.rbePausedOffscreen; v.play().catch(() => {}); }
     }
@@ -61,7 +68,14 @@
   // Reddit videos in the lightbox/viewer even though the stream has audio.
   function tryPlay(v) {
     return v.play().catch(err => {
-      if (err && err.name === 'NotAllowedError' && !v.muted) { v.muted = true; return v.play().catch(() => {}); }
+      if (err && err.name === 'NotAllowedError' && !v.muted) {
+        // Firefox refuses sound when play() comes after the click's activation ran out (hls.js still loading).
+        // Start muted, and give the sound back on the next click or key press.
+        v.muted = true;
+        const back = () => { ['pointerdown', 'keydown'].forEach(t => removeEventListener(t, back, true)); if (v.isConnected && v.muted && !v.dataset.rbeUserAudio) v.muted = !(+RBE.settings.videoVolume) || RBE.settings.videoMode === 'muted'; };
+        ['pointerdown', 'keydown'].forEach(t => addEventListener(t, back, true));
+        return v.play().catch(() => {});
+      }
     });
   }
 
@@ -87,9 +101,13 @@
     if (s.videoMode === 'muted') v.muted = true;
     else if (s.videoMode === 'volume' || s.videoMode === 'off') { v.volume = vol; v.muted = vol === 0; }
     const wantsPlay = autoplay && s.videoMode !== 'off';
+    v.addEventListener('volumechange', () => { if (gesture()) v.dataset.rbeUserAudio = '1'; });
     if (wantsPlay) {
       v.dataset.rbeWantPlay = '1'; // hls.js retries play once the stream is ready
-      tryPlay(v);
+      // Out of view (strip neighbours, lower in the viewer): don't start; the observer starts it when it shows
+      v.addEventListener('play', () => { if (v._rbeInView === false && !gesture()) v.pause(); });
+      v.addEventListener('playing', () => { if (v._rbeInView === false && !v._rbeSeen) v.pause(); else v.dataset.rbeStarted = '1'; });
+      tryPlay(v);   // now, inside the click, so the browser lets it play with sound later
     }
     io.observe(v);
   };
@@ -121,7 +139,7 @@
       const hls = new Hls({ capLevelToPlayerSize: true, startLevel: -1 });
       hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { console.warn('[RBE] hls error', data.type, data.details); fallback(); } });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (v.dataset.rbeWantPlay) tryPlay(v);
+        if (v.dataset.rbeWantPlay && v._rbeInView !== false && !v.dataset.rbeStarted) tryPlay(v);
       });
       hls.loadSource(item.hls);
       hls.attachMedia(v);
