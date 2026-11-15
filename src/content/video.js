@@ -1,7 +1,10 @@
 /* Video autoplay / volume control (isolated world side) */
 (() => {
-  let lastGesture = 0;
-  ['pointerdown', 'keydown', 'touchstart'].forEach(t => window.addEventListener(t, () => { lastGesture = Date.now(); }, true));
+  let lastGesture = 0, lastTarget = null;
+  ['pointerdown', 'keydown', 'touchstart'].forEach(t => window.addEventListener(t, e => {
+    lastGesture = Date.now();
+    lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target;
+  }, true));
   const gesture = () => Date.now() - lastGesture < 1200;
 
   // Tab hidden or window unfocused: pause everything that plays, and let nothing start meanwhile
@@ -28,8 +31,17 @@
         // our own video that wanted to autoplay but was out of view (lightbox strip, long viewer): start it now
         if (e.isIntersecting && v.dataset.rbeWantPlay && !v.dataset.rbeStarted && !away()) { tryPlay(v); continue; }
       }
-      if (!e.isIntersecting && s.videoPauseOffscreen && !v.paused) { v.pause(); v.dataset.rbePausedOffscreen = '1'; }
-      else if (e.isIntersecting && v.dataset.rbePausedOffscreen && s.videoMode !== 'off' && !away()) { delete v.dataset.rbePausedOffscreen; v.play().catch(() => {}); }
+      if (!e.isIntersecting) {
+        if (s.videoPauseOffscreen && !v.paused) v.pause();
+        // The site usually pauses feed videos itself as they leave. Remember that it was playing, so it can
+        // come back when it returns — unless the user paused it on purpose.
+        if (s.videoPauseOffscreen && v._rbePlaying && !v.dataset.rbeUserPaused) v.dataset.rbePausedOffscreen = '1';
+        else delete v.dataset.rbePausedOffscreen;
+      } else if (e.isIntersecting && v.dataset.rbePausedOffscreen && s.videoMode !== 'off' && !away()) {
+        delete v.dataset.rbePausedOffscreen;
+        v._rbePlaying = true;
+        v.play().catch(() => {});
+      }
     }
   }, { threshold: 0.15 });
 
@@ -38,6 +50,28 @@
     seen.add(v);
     known.add(v);
     io.observe(v);
+    v.addEventListener('playing', () => { v._rbePlaying = true; });
+    // A pause right after a click/key on that player is the user's: never undo it later. In the light DOM the
+    // click lands on the video or its own container (a few levels up); inside a player's shadow root only that
+    // root counts. Comparing root nodes alone would call any earlier click on the page a pause of this video.
+    const userPausedIt = () => {
+      if (!gesture() || !lastTarget) return false;      // a pause long after any click is the page's, not the user's
+      if (lastTarget === v) return true;
+      const root = v.getRootNode();
+      if (root !== document) return lastTarget.getRootNode?.() === root;
+      let p = v;
+      for (let i = 0; i < 2 && p; i++, p = p.parentElement) {
+        if (!p || p === document.body || p === document.documentElement) break;
+        if (p.contains(lastTarget)) return true;
+      }
+      return false;
+    };
+    v.addEventListener('pause', () => {
+      if (userPausedIt()) {
+        v._rbePlaying = false;
+        v.dataset.rbeUserPaused = '1';
+      }
+    });
     v.addEventListener('play', () => {
       const s = RBE.settings;
       if (away() && !gesture()) { v.pause(); return; }

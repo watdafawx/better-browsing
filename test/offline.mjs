@@ -205,6 +205,37 @@ r.lbPause = await page.evaluate(() => {
   return res;
 });
 
+// a video that was playing when it left the viewport comes back when it returns (the site pauses feed
+// videos itself, so the resume cannot rely on our own pause having done it)
+r.resume = await page.evaluate(() => new Promise(res => {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute;top:0;left:0;width:320px;height:200px;z-index:1';
+  const v = document.createElement('video');
+  v.style.cssText = 'width:320px;height:200px';
+  box.append(v);
+  document.body.prepend(box);
+  let playing = false; const calls = [];
+  Object.defineProperty(v, 'paused', { configurable: true, get: () => !playing });
+  v.play = () => { playing = true; calls.push('play'); v.dispatchEvent(new Event('play')); v.dispatchEvent(new Event('playing')); return Promise.resolve(); };
+  v.pause = () => { if (!playing) return; playing = false; calls.push('pause'); v.dispatchEvent(new Event('pause')); };
+  setTimeout(() => {                                  // let the observer see it first
+    v.play();                                         // as if the site started it
+    setTimeout(() => {
+      v.pause();                                      // the site pauses it as it leaves
+      box.style.top = '5000px';
+      setTimeout(() => {
+        const marked = v.dataset.rbePausedOffscreen || null;
+        box.style.top = '0px';                        // back into view
+        setTimeout(() => {
+          const out = { marked, resumed: playing, plays: calls.filter(c => c === 'play').length };
+          box.remove();
+          res(out);
+        }, 1200);
+      }, 900);
+    }, 500);
+  }, 900);
+}));
+
 // settings change through storage reaches the page (filtered onChanged)
 await setSetting('theme', 'nord');
 await page.waitForTimeout(500);
@@ -399,6 +430,7 @@ const checks = {
   'click on the post, not the player, never mutes it': r.audioScope.ignored && r.audioScope.tagged === null && r.audioScope.muted === false && Math.abs(r.audioScope.vol - 0.1) < 0.01,
   'lightbox open pauses page videos that start, not its own': r.lbPause.before === 0 && r.lbPause.behind === 1 && r.lbPause.mine === 0,
   'video stuck muted gets unmuted after a click': r.safety.active && r.safety.muted === false && Math.abs(r.safety.vol - 0.1) < 0.01,
+  'a video that was playing when it left the view comes back when it returns': r.resume?.marked === '1' && r.resume.resumed === true && r.resume.plays >= 2,
   'theme change applies': r.themeApplied,
   'Discord button added next to Share in feed posts': r.feedEmbed && /redditez\.com\/r\/test\/comments\/ccc\//.test(r.feedEmbedCopied) && r.feedEmbedNoViewer,
   'Discord link button copies redditez.com permalink': /^https:\/\/redditez\.com\/r\/[^/]+\/comments\/[a-z0-9]+\//.test(r.embed?.copied || '') && r.embed.inPost,

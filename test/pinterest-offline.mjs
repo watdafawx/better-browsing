@@ -167,6 +167,37 @@ r.unhidden = await page.evaluate(() => {
   return { display: ad ? getComputedStyle(ad).display : '', marked: ad?.classList.contains('pin-ad') };
 });
 
+// a video that was playing when it left the viewport comes back when it returns (Pinterest pauses grid
+// videos itself, so the resume cannot rely on our own pause having done it)
+r.resume = await page.evaluate(() => new Promise(res => {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute;top:0;left:0;width:320px;height:200px;z-index:2';
+  const v = document.createElement('video');
+  v.style.cssText = 'width:320px;height:200px';
+  box.append(v);
+  document.body.prepend(box);
+  let playing = false; const calls = [];
+  Object.defineProperty(v, 'paused', { configurable: true, get: () => !playing });
+  v.play = () => { playing = true; calls.push('play'); v.dispatchEvent(new Event('play')); v.dispatchEvent(new Event('playing')); return Promise.resolve(); };
+  v.pause = () => { if (!playing) return; playing = false; calls.push('pause'); v.dispatchEvent(new Event('pause')); };
+  setTimeout(() => {
+    v.play();
+    setTimeout(() => {
+      v.pause();                                      // the site pauses it as it leaves
+      box.style.top = '5000px';
+      setTimeout(() => {
+        const marked = v.dataset.pinPausedOffscreen || null;
+        box.style.top = '0px';
+        setTimeout(() => {
+          const out = { marked, resumed: playing, plays: calls.filter(c => c === 'play').length };
+          box.remove();
+          res(out);
+        }, 1200);
+      }, 900);
+    }, 500);
+  }, 900);
+}));
+
 const checks = {
   'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
@@ -177,6 +208,7 @@ const checks = {
   'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /originals\/b\.jpg$/.test(r.nextPin?.src || ''),
   'Esc closes and unlocks the page': r.closed?.gone && r.closed.unlocked && !r.closed.attr,
   'the promoted switch brings them back': r.unhidden?.display !== 'none',
+  'a video that was playing when it left the view comes back when it returns': r.resume?.marked === '1' && r.resume.resumed === true && r.resume.plays >= 2,
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };
 
