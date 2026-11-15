@@ -23,26 +23,27 @@ Mapped from what the Reddit part does now (1.3.18):
 Not planned for v1: idea pins (multi-page stories) as a lightbox sequence, comments in the lightbox, board
 management, shopping/Pins with product data beyond the image/video itself.
 
-## What we know about Pinterest (verified by fetching pages)
+## What we know about Pinterest (from a real logged-in session, Nov 2026)
 
-- Logged out, `pinterest.com` is a marketing landing page: no feed, no pins. Everything interesting needs a
-  logged-in session, so a real feed cannot be fetched from this machine (the anonymous `__PWS_DATA__` has no
-  `initialReduxState`).
-- The internal resource API exists and the web client uses it:
-  `POST /resource/<NameResource>/<action>/?source_url=<path>&data=<json>` with `X-CSRFToken` (from the
-  `csrftoken` cookie), `X-Requested-With: XMLHttpRequest`, `X-Pinterest-AppState: active`.
-  Known names: `PinResource/get` (`v3_get_pin`, pin close-up), `BaseSearchResource/get` (`v3_search_pins`),
-  `v3_home_feed` (requires auth), `RelatedPinFeedResource` (related pins). Paging uses `bookmarks`, and the
-  envelope returns `resource_response.data` + `resource_response.bookmark`.
-  Anonymous calls to it currently answer **403**, so it has to run from the page with the user's session.
-- Pages carry a `__PWS_DATA__` JSON script (server state) — useful as a fallback, but the feed itself is
-  client-rendered into a virtualised masonry grid.
-- Images: `i.pinimg.com/<bucket>/<file>` with buckets such as `236x`, `474x`, `736x`, `originals` — the same
-  file at several sizes, so "full resolution" is a bucket swap, not a new URL.
-- Videos: `v1.pinimg.com/videos/...` (progressive `mp4`, and an HLS variant for some pins). A video pin carries
-  `is_video: true` and a `videos.video_list` map of renditions (`V_720P`, `V_HLSV3_MOBILE`, …).
-- Class names are hashed and change often, like Instagram's: select by `data-test-id`, `role`, structure and
-  geometry, never by class name.
+Full detail in `pinterest/README.md`. The short version, and what it changes here:
+
+- Feed pins: `div[data-test-id="pin"]` with `data-test-pin-id`; link in `pinWrapper` (`a[href="/pin/<id>/"]`);
+  image `pinrep-image`; idea pins `pincard-storyPin-without-link`. Hashed classes only, as guessed.
+- **The grid is virtualised** (first pins left the DOM after scrolling, count grew 24 → 64). The lightbox keeps
+  its own ordered list of ids and fetches by id; DOM entries cannot be the model.
+- Data: `PinResource/get` with `field_set_key=auth_web_main_pin` plus `x-pinterest-source-url` and
+  `x-pinterest-pws-handler` headers (without those two it answers "Invalid Request"), envelope
+  `resource_response.data`. Works from the page with cookies, no extra token.
+- Images: `pin.images` has `orig` (full), `1200x`, `736x`, … — pick `orig`, fall back down the list.
+- Videos: `pin.videos.video_list.V_720P` is a progressive mp4 **with AAC audio** (ffprobe), plus `V_HLSV4` /
+  `V_HLSV3_MOBILE`. The page plays them through MSE; we can use the mp4 directly, so **Pinterest needs no
+  hls.js** and the script does not grow by 400 KB.
+- `is_video` can be false on a video pin → detect video by `videos.video_list`.
+- Idea pins: `story_pin_data.pages[]` (blocks, per-page video/image), rendered as
+  `story-pin-page-drag-surface` / `story-pin-image-block`.
+- Close-up is a navigation to `/pin/<id>/` with `closeup-*` elements; closing our overlay must return to the
+  feed URL without fighting the router.
+- Still unknown: the comment resource (sampled pins had no comments) and the promoted-pin marker.
 
 ## Unknowns that need one logged-in session (milestone 0)
 
@@ -112,8 +113,8 @@ answering 403. Requests go through `PIN.getJSON` built on `content.fetch` in a F
 
 ## Milestones
 
-0. **Recon (needs the logged-in site).** Answer the six unknowns above; save one feed page and one close-up as
-   fixtures (HTML + the JSON the page fetched). Deliverable: `pinterest/README.md` "how it works" filled in.
+0. **Recon — done.** Findings in `pinterest/README.md`. Two leftovers for implementation time: the comment
+   resource (needs a pin that has comments) and the promoted-pin marker.
 1. **Skeleton.** Folder, manifest, `build.js` wiring, storage, empty content scripts, panel mounting, header and
    version. Test: the built script loads on a fixture page, `PIN` exists, settings read/write, panel opens with
    Alt+W and closes with Esc.
