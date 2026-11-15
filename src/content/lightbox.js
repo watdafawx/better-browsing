@@ -134,11 +134,9 @@
     usingOriginal(item, e) { return this.canOriginal(item, e) && this.original.has(this.originalKey()); }
     originalEl(item, e) {
       const permalink = e?.data?.permalink || e?.el?.getAttribute('permalink') || '';
-      const frame = h('iframe', { class: 'rbe-lb-orig-frame', title: 'Reddit player',
+      const frame = h('iframe', { class: 'rbe-lb-orig-frame', src: RBE.redditEmbedSrc(permalink), title: 'Reddit player',
         allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true, referrerpolicy: 'no-referrer-when-downgrade' });
-      const box = h('div', { class: 'rbe-lb-embed rbe-lb-orig', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
-      RBE.redditEmbedSrc(permalink).then(src => { if (src) frame.src = src; });
-      return box;
+      return h('div', { class: 'rbe-lb-embed rbe-lb-orig', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
     }
     async items(pi) {
       const e = this.entries[pi];

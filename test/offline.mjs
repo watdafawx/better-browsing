@@ -45,7 +45,6 @@ const fixtures = async route => {
   if (u.pathname.startsWith('/api/user_data_by_account_ids')) return json({});
   if (u.pathname.endsWith('/about.json')) return json({ data: {} });
   if (u.pathname.startsWith('/api/me')) return json({ data: {} });
-  if (u.pathname === '/oembed') return json({ html: '<iframe src="https://embed.reddit.com/r/test/comments/vvv/post_vvv/?embed=true&amp;showmedia=true"></iframe>' });
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
@@ -373,7 +372,7 @@ const checks = {
   'userscript: clicks inside the settings panel keep it open': r.us.openAfterClick === 'video',
   'userscript: image lightbox opens with the gallery': !!r.us.lightbox?.fixed && r.us.lightbox.full && r.us.lightbox.img && r.us.lightbox.count === '1/2',
   'userscript: a plain .mp4 link gets sound in the lightbox, and a refused start comes back on the next click': r.us.mp4?.there && r.us.mp4.blockedMuted === true && r.us.mp4.muted === false && Math.abs(r.us.mp4.vol - 0.1) < 0.01 && r.us.mp4.user === null,
-  'userscript: the lightbox hands a Reddit video to Reddit\'s own player and takes it back': r.us.orig?.btn && r.us.orig.video && /embed\.reddit\.com\/r\/test\/comments\/vvv\//.test(r.us.orig.frame) && !r.us.orig.videoAfter && r.us.orig.videoBack && r.us.orig.frameGone,
+  'userscript: the lightbox hands a Reddit video to Reddit\'s own player and takes it back': r.us.orig?.btn && r.us.orig.video && /^https:\/\/embed\.reddit\.com\/r\/test\/comments\/vvv\/post_vvv\/\?embed=true&showmedia=true/.test(r.us.orig.frame) && !/\.js(\?|$)/.test(r.us.orig.frame) && !r.us.orig.videoAfter && r.us.orig.videoBack && r.us.orig.frameGone,
   'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
 };
 

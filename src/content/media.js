@@ -120,21 +120,15 @@
 
   RBE.imageItems = d => RBE.extractMedia(d).items.filter(i => i.type === 'image' || i.type === 'mp4');
 
-  // Reddit's own player for a post, as an iframe URL (the lightbox's "original player" toggle).
-  // oEmbed hands out the current embed URL; the embed host is the fallback if it is blocked or changes shape.
-  const embedSrc = new Map();
+  // Reddit's own embed player for a post, as an iframe URL. This is the URL Reddit's own widgets.js builds
+  // for an embedded post: embed.reddit.com<permalink>?embed=true&showmedia=true&…
+  // (oEmbed is not reliable here: for many posts `html` is the blockquote + widgets.js snippet, whose first
+  // src is the script, not a player — that is how a .js file ended up in the lightbox.)
   RBE.redditEmbedSrc = function (permalink) {
-    const path = (permalink || '').replace(/^https?:\/\/[^/]+/i, '');
-    if (!path) return Promise.resolve('');
-    if (!embedSrc.has(path)) {
-      embedSrc.set(path, RBE.getJSON('/oembed?url=' + encodeURIComponent('https://www.reddit.com' + path) + '&format=json')
-        .then(j => {
-          const m = /src="([^"]+)"/.exec(j?.html || '');
-          if (!m) throw new Error('no iframe in oEmbed');
-          return m[1].replace(/&amp;/g, '&');
-        })
-        .catch(() => 'https://embed.reddit.com' + path));
-    }
-    return embedSrc.get(path);
+    const path = (permalink || '').replace(/^https?:\/\/[^/]+/i, '').replace(/\/?$/, '/');
+    if (!path || path === '/') return '';
+    const q = new URLSearchParams({ embed: 'true', showmedia: 'true', ref_source: 'embed', ref: 'share',
+      utm_medium: 'widgets', utm_source: 'embedv2', utm_term: '23' });
+    return `https://embed.reddit.com${path}?${q}`;
   };
 })();
