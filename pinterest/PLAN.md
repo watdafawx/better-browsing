@@ -121,9 +121,10 @@ answering 403. Requests go through `PIN.getJSON` built on `content.fetch` in a F
    fighting (patch `autoplay`/`play`/`muted`/`volume`), pause offscreen and when hidden, our own player for
    pins we open in the lightbox.
 3. **Lightbox.** Adapted from Reddit's: click a grid pin → overlay with the full image or video, wheel/arrows
-   through the grid, filmstrip, description side panel, `Esc`/back, provider embeds lazy-mounted + reload.
-4. **Polish.** Hide promoted pins, "Open pin"/copy-link actions, download, `Esc` conflicts with Pinterest's own
-   overlay/router, NSFW/sensitive-content handling.
+   through the grid, filmstrip, description + comments side panel, `Esc`/back, idea pins as a page sequence,
+   provider embeds lazy-mounted + reload.
+4. **Polish.** Hide promoted pins (default on), "Open pin"/copy-link/download actions, floating bottom-right
+   settings button + Alt+W, `Esc` conflicts with Pinterest's own overlay/router, NSFW/sensitive-content handling.
 5. **Tests + docs.** `test/pinterest-offline.mjs` on fixtures (feed grid, close-up JSON, a video pin, an embed
    pin) with the same PASS/FAIL output; add it to `test/all.mjs` for Chromium and Firefox; update
    `README.md`, `CLAUDE.md` (new "Pinterest" section) and the release notes.
@@ -142,10 +143,26 @@ answering 403. Requests go through `PIN.getJSON` built on `content.fetch` in a F
 - **Growth**: adding a fourth site grows the single script. Pinterest should not pull in hls.js; if it needs HLS,
   reuse `RBE_LOAD_HLS` lazily rather than shipping a second copy.
 
-## Decisions to make before milestone 1
+## Decisions (answered)
 
-1. Scope: images + videos only, or also idea pins as sequences, and comments in the lightbox?
-2. Downloads and Discord-style links: needed on Pinterest, or lightbox + sound is enough?
-3. Promoted/suggested pin hiding: on by default?
-4. Where the gear should live if the header slot is unstable: header, floating quick bar (like Reddit's), or only
-   Alt+W.
+1. **Scope**: all of it — images, videos, idea pins as sequences, and comments in the lightbox.
+2. **Downloads / Discord-style links**: build them if the API gives the file and a stable pin URL; if not, lightbox +
+   sound is the acceptable floor.
+3. **Hide promoted/suggested pins**: yes, on by default.
+4. **Settings entry**: a floating button in the bottom-right corner (plus Alt+W), not the header. That also
+   sidesteps the hashed, frequently re-laid-out header.
+
+## Recon checklist (milestone 0, logged-in session)
+
+Open the site, then note in `pinterest/README.md`:
+
+- one grid pin: element, attrs (`data-test-id`, `role`, `data-grid-item`), the link, the full-size image URL;
+- scroll far and back: are off-screen pins removed from the DOM? (virtualisation)
+- a pin close-up: container, how it opens/closes, router interaction;
+- the network calls: `PinResource/get` payload and response (`images`, `videos.video_list`, `story_pin_data`,
+  comment counts), and the comments call behind the close-up;
+- a video pin: `<video>` markup and attributes, which `video_list` key is used, and whether the progressive mp4
+  decodes audio (`video.webkitAudioDecodedByteCount` after a second of playback, or `captureStream()` audio tracks);
+- an idea pin: how pages/segments are addressed, and whether the API exposes them as a list;
+- Alt+W availability inside Pinterest's own shortcuts, and where a fixed bottom-right button can live without
+  being covered by their "Save" hover actions.
