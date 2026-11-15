@@ -119,4 +119,22 @@
   };
 
   RBE.imageItems = d => RBE.extractMedia(d).items.filter(i => i.type === 'image' || i.type === 'mp4');
+
+  // Reddit's own player for a post, as an iframe URL (the lightbox's "original player" toggle).
+  // oEmbed hands out the current embed URL; the embed host is the fallback if it is blocked or changes shape.
+  const embedSrc = new Map();
+  RBE.redditEmbedSrc = function (permalink) {
+    const path = (permalink || '').replace(/^https?:\/\/[^/]+/i, '');
+    if (!path) return Promise.resolve('');
+    if (!embedSrc.has(path)) {
+      embedSrc.set(path, RBE.getJSON('/oembed?url=' + encodeURIComponent('https://www.reddit.com' + path) + '&format=json')
+        .then(j => {
+          const m = /src="([^"]+)"/.exec(j?.html || '');
+          if (!m) throw new Error('no iframe in oEmbed');
+          return m[1].replace(/&amp;/g, '&');
+        })
+        .catch(() => 'https://embed.reddit.com' + path));
+    }
+    return embedSrc.get(path);
+  };
 })();

@@ -45,6 +45,7 @@ const fixtures = async route => {
   if (u.pathname.startsWith('/api/user_data_by_account_ids')) return json({});
   if (u.pathname.endsWith('/about.json')) return json({ data: {} });
   if (u.pathname.startsWith('/api/me')) return json({ data: {} });
+  if (u.pathname === '/oembed') return json({ html: '<iframe src="https://embed.reddit.com/r/test/comments/vvv/post_vvv/?embed=true&amp;showmedia=true"></iframe>' });
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
@@ -297,6 +298,35 @@ r.us = { built: true };
   }));
   await p2.keyboard.press('Escape');
   await p2.waitForTimeout(200);
+  // a Reddit-hosted video: the bar can hand it to Reddit's own player and back
+  r.us.orig = await p2.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_vvv', id: 'vvv', title: 'Video', author: 'a',
+      subreddit_name_prefixed: 'r/test', permalink: '/r/test/comments/vvv/post_vvv/', created_utc: 1, is_video: true, is_self: false,
+      secure_media: { reddit_video: { hls_url: 'https://v.redd.it/x/HLSPlaylist.m3u8', fallback_url: 'https://v.redd.it/x/DASH_480.mp4', width: 640, height: 360 } } } });
+    const btn = () => document.querySelector('.rbe-lb-orig-btn');
+    await wait(900);
+    const out = { btn: !!btn(), video: !!document.querySelector('.rbe-lb-stage video') };
+    btn()?.click(); await wait(600);
+    out.frame = document.querySelector('.rbe-lb-stage iframe')?.src || '';
+    out.videoAfter = !!document.querySelector('.rbe-lb-stage video');
+    btn()?.click(); await wait(600);
+    out.videoBack = !!document.querySelector('.rbe-lb-stage video');
+    out.frameGone = !document.querySelector('.rbe-lb-stage iframe');
+    return out;
+  });
+  await p2.keyboard.press('Escape');
+  // an embedded player stays the provider's own iframe, and the bar links to the provider's page
+  r.us.embedOut = await p2.evaluate(async () => {
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_eee', id: 'eee', title: 'YT', author: 'a',
+      subreddit_name_prefixed: 'r/test', permalink: '/r/test/comments/eee/yt/', created_utc: 1, is_self: false,
+      url: 'https://www.youtube.com/watch?v=abc', media: { oembed: { provider_name: 'YouTube' } },
+      secure_media_embed: { content: '<iframe src="https://www.youtube.com/embed/abc"></iframe>' } } });
+    await new Promise(r => setTimeout(r, 700));
+    const a = document.querySelector('.rbe-lb-bar a[title^="Open at"]');
+    return { href: a?.getAttribute('href') || '', frame: !!document.querySelector('.rbe-lb-stage iframe') };
+  });
+  await p2.keyboard.press('Escape');
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -343,6 +373,8 @@ const checks = {
   'userscript: clicks inside the settings panel keep it open': r.us.openAfterClick === 'video',
   'userscript: image lightbox opens with the gallery': !!r.us.lightbox?.fixed && r.us.lightbox.full && r.us.lightbox.img && r.us.lightbox.count === '1/2',
   'userscript: a plain .mp4 link gets sound in the lightbox, and a refused start comes back on the next click': r.us.mp4?.there && r.us.mp4.blockedMuted === true && r.us.mp4.muted === false && Math.abs(r.us.mp4.vol - 0.1) < 0.01 && r.us.mp4.user === null,
+  'userscript: the lightbox hands a Reddit video to Reddit\'s own player and takes it back': r.us.orig?.btn && r.us.orig.video && /embed\.reddit\.com\/r\/test\/comments\/vvv\//.test(r.us.orig.frame) && !r.us.orig.videoAfter && r.us.orig.videoBack && r.us.orig.frameGone,
+  'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
 };
 
 let failed = 0;

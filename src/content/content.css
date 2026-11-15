@@ -28,6 +28,7 @@ html.rbe-noscroll, html.rbe-noscroll body { overflow: hidden !important; }
   cursor: pointer; color: inherit; font-size: 15px; line-height: 1; text-decoration: none !important;
 }
 .rbe-btn:hover { background: var(--b-hover); }
+.rbe-btn.on { background: var(--b-hover); color: var(--b-accent); }
 .rbe-btn[hidden] { display: none; }
 .rbe-linkbtn { all: unset; cursor: pointer; color: var(--b-weak); font-size: 12px; font-weight: 600; }
 .rbe-linkbtn:hover { color: var(--b-text); text-decoration: underline; }
