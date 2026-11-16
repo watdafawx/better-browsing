@@ -466,12 +466,14 @@ r.us = { built: true };
     p.show(false); await wait(800);
     out.closedAutoplayLeft = playing(p.v);
     p.done();
-    // A native player can start before asynchronous settings arrive, with no later edge crossing.
+    // A player can start before asynchronous settings arrive, with no later edge crossing.
     {
       const config = document.documentElement.getAttribute('data-rbe-video');
       document.documentElement.removeAttribute('data-rbe-video');
       await wait(50);
       p = mk({ mode: 'closed', tag: 'div', html: vid(`autoplay src="${CLIP}"`) });
+      // Chromium defers offscreen native autoplay itself; explicitly start to exercise the same race there.
+      p.v.play().catch(() => {});
       await wait(1000);
       out.beforeSettings = playing(p.v);
       document.documentElement.setAttribute('data-rbe-video', config);
