@@ -21,7 +21,10 @@ const REPO = 'https://github.com/watdafawx/better-browsing';
 const RELEASE = `${REPO}/releases/download/userscript/`;
 const read = f => fs.readFileSync(f, 'utf8');
 const SHARED = ['userscript/run-main.js', 'userscript/store.js', 'userscript/panel.js', 'userscript/claim.js'];
-const ICON = 'data:image/svg+xml;base64,' + fs.readFileSync('userscript/icon.svg').toString('base64');
+// One icon per script, so four installed scripts (and the old combined one) are told apart in the manager's
+// menu. Each is inlined as an SVG data URI: nothing to fetch, and a couple of hundred bytes in the .meta.js.
+// Adding a site: add userscript/icons/<site>.svg.
+const iconOf = key => 'data:image/svg+xml;base64,' + fs.readFileSync(`userscript/icons/${key}.svg`).toString('base64');
 
 // [main-world files, content files, css files] from a manifest, as paths under srcDir
 function scripts(man, srcDir) {
@@ -149,7 +152,7 @@ function header(b, version) {
     ...s.flatMap(x => x.match.map(m => ['match', m])), ...s.flatMap(x => x.exclude.map(m => ['exclude', m])),
     ['run-at', 'document-start'], ['grant', 'none'], ['inject-into', 'auto'], ['noframes', ''],
     ['updateURL', `${RELEASE}${b.file}.meta.js`], ['downloadURL', `${RELEASE}${b.file}.user.js`],
-    ['homepageURL', REPO], ['supportURL', `${REPO}/issues`], ['icon', ICON], ['license', 'MIT'],
+    ['homepageURL', REPO], ['supportURL', `${REPO}/issues`], ['icon', iconOf(b.combined ? 'combined' : b.sites[0])], ['license', 'MIT'],
   ];
   return `// ==UserScript==\n${lines.map(([k, v]) => `// @${k.padEnd(12)} ${v}`.trimEnd()).join('\n')}\n// ==/UserScript==\n`;
 }

@@ -323,10 +323,20 @@ const geo = (page, ids) => page.evaluate(ids => { const mid = innerHeight / 2; r
     else { document.hasFocus = () => !on; window.dispatchEvent(new Event(on ? 'blur' : 'focus')); }
   }, [kind, on]);
   const run = page => page.evaluate(() => [...document.querySelectorAll('video')].filter(v => !v.paused).map(v => v.id));
+  // Wait for the feed to settle on `n` playing videos instead of sleeping a fixed time: coming back from a hidden
+  // tab or a blur resumes on the player's own schedule, and a fixed 1.5 s raced it in one release run.
+  const settle = async (page, n, ms = 6000) => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const seen = await run(page);
+      if (seen.length === n || Date.now() > end) return seen;
+      await page.waitForTimeout(100);
+    }
+  };
   for (const kind of ['hidden', 'blur']) {
     const { ctx, page } = await open(null, '/feed', 700);
-    await page.waitForTimeout(1500);
-    check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: a video plays to begin with`, (await run(page)).length === 1, await run(page));
+    const first = await settle(page, 1);
+    check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: a video plays to begin with`, first.length === 1, first);
     await away(page, kind, true);
     await page.waitForTimeout(700);
     check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: the playing video pauses`, (await run(page)).length === 0, await run(page));
@@ -334,8 +344,8 @@ const geo = (page, ids) => page.evaluate(ids => { const mid = innerHeight / 2; r
     await page.waitForTimeout(800);
     check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: scrolling meanwhile starts nothing`, (await run(page)).length === 0, await run(page));
     await away(page, kind, false);
-    await page.waitForTimeout(1500);
-    check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: back again, one video plays`, (await run(page)).length === 1, await run(page));
+    const back = await settle(page, 1);
+    check(`${kind === 'hidden' ? 'tab hidden' : 'window unfocused'}: back again, one video plays`, back.length === 1, back);
     await ctx.close();
   }
   {

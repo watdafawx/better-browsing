@@ -59,6 +59,15 @@ const sites = all.filter(b => b.f !== COMBINED && b.user), combined = all.find(b
 checks['every script has its own @name'] = new Set(all.map(b => b.user?.get('name')[0])).size === all.length;
 checks['the combined script keeps its @name'] = combined?.get('name')[0] === 'Better Browsing (Reddit + Instagram)';
 
+// Icons: the four scripts sit next to each other in the manager's menu, so each needs its own mark
+const icons = all.map(b => b.user?.get('icon')[0] || '');
+const svgOf = v => {
+  const m = v.match(/^data:image\/svg\+xml;base64,(.+)$/);
+  return m ? Buffer.from(m[1], 'base64').toString('utf8').trim() : '';
+};
+checks['every script has an @icon that is an inline SVG'] = icons.every(v => /^<svg[\s>]/.test(svgOf(v)));
+checks['no two scripts share an @icon'] = new Set(icons).size === icons.length && icons.every(Boolean);
+
 // No overlap, no gap: per-site @match lists are disjoint and together are the combined script's
 const pats = sites.flatMap(b => b.user.get('match'));
 checks['no @match pattern appears in two per-site scripts'] = new Set(pats).size === pats.length;
