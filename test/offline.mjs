@@ -274,7 +274,7 @@ r.us = { built: true };
   r.us.browser = FF ? 'firefox' : 'chromium';
   const b2 = await bt.launch(launchOpts);
   const c2 = await b2.newContext({ viewport: { width: 1400, height: 900 } });
-  await c2.route(/reddit\.com|redd\.it|redditstatic/, fixtures);
+  await c2.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
   await c2.addInitScript({ path: usFile });
   const p2 = await c2.newPage();
   const usLogs = [];
@@ -411,8 +411,34 @@ r.us = { built: true };
     host.style.top = '0px';
     await new Promise(r => setTimeout(r, 800));
     const on = f.getAttribute('src') || '';
+    document.documentElement.setAttribute('data-rbe-lb', '');
+    await new Promise(r => setTimeout(r, 300));
+    const behind = f.getAttribute('src');
+    document.documentElement.removeAttribute('data-rbe-lb');
+    await new Promise(r => setTimeout(r, 300));
+    host.style.top = (innerHeight + 10) + 'px';
+    await new Promise(r => setTimeout(r, 500));
+    const below = f.getAttribute('src');
     host.remove();
-    return { off, on };
+    return { off, on, below, behind };
+  });
+  r.us.feedFrame = await p2.evaluate(async () => {
+    const wait = () => new Promise(r => setTimeout(r, 700));
+    const f = document.createElement('iframe'), src = 'https://www.redgifs.com/ifr/fixture';
+    f.style.cssText = 'position:fixed;left:0;top:5000px;width:300px;height:200px';
+    f.src = src; document.body.append(f); await wait();
+    const off = f.getAttribute('src');
+    f.src = src; await wait(); const restarted = f.getAttribute('src');
+    f.style.top = '100px'; await wait(); const on = f.getAttribute('src');
+    document.documentElement.setAttribute('data-rbe-lb', ''); await wait(); const behind = f.getAttribute('src');
+    document.documentElement.removeAttribute('data-rbe-lb'); await wait(); const restored = f.getAttribute('src');
+    f.style.top = (innerHeight + 10) + 'px'; await wait(); const below = f.getAttribute('src');
+    RBE.settings.videoPauseOffscreen = false;
+    await RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, videoPauseOffscreen: false } }));
+    await wait(); const disabled = f.getAttribute('src');
+    await RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, videoPauseOffscreen: true } }));
+    await wait(); const enabled = f.getAttribute('src');
+    f.remove(); return { off, restarted, on, behind, restored, below, disabled, enabled };
   });
   // Videos out of view: nothing plays while wholly outside the viewport, and what the page wanted playing
   // starts when it comes in. Real clips, players in open and closed shadow roots, the ways Reddit's players
@@ -696,7 +722,8 @@ const checks = {
   'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
   'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
   'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
-  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && r.us.lazy.below === 'about:blank' && r.us.lazy.behind === 'about:blank' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: feed Redgifs frames unload offscreen and behind the lightbox, including src restarts': (f => f && f.off === 'about:blank' && f.restarted === 'about:blank' && f.behind === 'about:blank' && f.below === 'about:blank' && f.on === f.restored && f.disabled === f.on && f.enabled === 'about:blank' && /redgifs/.test(f.on))(r.us.feedFrame),
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
   'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
   'userscript: closed-root native autoplay waits offscreen, starts on entry and pauses on exit': (o => o && !o.closedAutoplayOff && o.closedAutoplayIn && !o.closedAutoplayLeft)(r.us.offscreen),

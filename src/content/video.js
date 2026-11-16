@@ -123,6 +123,8 @@
   function scan(root, depth = 0) {
     if (!root || depth > 4) return;
     root.querySelectorAll('video').forEach(guard);
+    root.querySelectorAll('iframe').forEach(guardFeedFrame);
+    if (root === document) for (const f of frameSrc.keys()) if (!f.isConnected) forgetFrame(f);
     root.querySelectorAll('shreddit-player, shreddit-player-2, shreddit-media-player, media-player, shreddit-async-loader, shreddit-embed').forEach(h => h.shadowRoot && scan(h.shadowRoot, depth + 1));
   }
 
@@ -147,24 +149,57 @@
     noteAudio(v);
   };
 
-  // Provider players (<iframe>): mount only while near the viewport, and go back to about:blank when far away.
-  // A <video> can be paused from here; a redgifs/YouTube player's sound lives inside the frame, so the only way
-  // to stop an embed far down the strip from playing behind the post you are reading is to unload it.
-  const frameSrc = new WeakMap();
+  // Cross-origin players cannot be paused from Reddit: unload them outside the viewport.
+  const frameSrc = new Map(), frameVisible = new WeakMap(), feedFrames = new WeakSet(), frameObservers = new WeakMap();
+  function syncFrame(f) {
+    const src = frameSrc.get(f);
+    if (!src) return;
+    const feed = feedFrames.has(f);
+    const visible = !frameIO || (feed && !RBE.settings.videoPauseOffscreen) || frameVisible.get(f);
+    const behindLightbox = document.documentElement.hasAttribute('data-rbe-lb') && !f.closest('.rbe-lb');
+    const wanted = visible && !behindLightbox ? src : 'about:blank';
+    const current = f.getAttribute('src') || '';
+    if (current !== wanted && (current || wanted !== 'about:blank')) f.src = wanted;
+  }
   const frameIO = typeof IntersectionObserver === 'function' && new IntersectionObserver(entries => {
-    for (const e of entries) {
-      const f = e.target, src = frameSrc.get(f);
-      if (!src) continue;
-      if (e.isIntersecting) { if (f.getAttribute('src') !== src) f.src = src; }
-      else if (f.getAttribute('src')) f.src = 'about:blank';
-    }
-  }, { rootMargin: '30% 0px' });
+    for (const e of entries) { frameVisible.set(e.target, e.isIntersecting); syncFrame(e.target); }
+  });
+  function forgetFrame(f) {
+    frameIO?.unobserve(f);
+    frameObservers.get(f)?.disconnect();
+    frameObservers.delete(f); frameSrc.delete(f); frameVisible.delete(f); feedFrames.delete(f);
+  }
   RBE.lazyFrame = function (frame, src = '') {
     if (!src) return frame;
     frameSrc.set(frame, src);
     if (frameIO) frameIO.observe(frame); else frame.src = src;
     return frame;
   };
+  function redgifsFrame(f) {
+    try {
+      const u = new URL(f.src);
+      return /(^|\.)redgifs\.com$/i.test(u.hostname) && u.pathname.startsWith('/ifr/');
+    } catch { return false; }
+  }
+  function guardFeedFrame(f) {
+    if (frameSrc.has(f) || !redgifsFrame(f)) return;
+    feedFrames.add(f);
+    RBE.lazyFrame(f, f.src);
+    // Reddit can restore src without inserting a new node. Keep that from restarting hidden audio.
+    const observer = new MutationObserver(() => {
+      if (f.getAttribute('src') !== 'about:blank') {
+        if (!redgifsFrame(f)) { forgetFrame(f); return; }
+        frameSrc.set(f, f.src);
+      }
+      syncFrame(f);
+    });
+    frameObservers.set(f, observer);
+    observer.observe(f, { attributes: true, attributeFilter: ['src'] });
+    syncFrame(f);
+  }
+  RBE.onSettings(() => { scan(document); for (const f of frameSrc.keys()) syncFrame(f); });
+  new MutationObserver(() => { for (const f of frameSrc.keys()) syncFrame(f); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-rbe-lb'] });
   // Reload a provider player: their API is flaky (the same call answers 401, then 200), so a fresh frame often
   // brings the video back without closing the lightbox.
   RBE.reloadFrame = function (f) {
