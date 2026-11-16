@@ -38,10 +38,19 @@
   // Wholly outside the viewport (the observer's "not intersecting"). Until the observer has reported on a video
   // its rect decides: our own players are started before they are inserted, and a play()/'playing' can come
   // before the first report. Not laid out yet (detached, no size): unknown, so not "outside".
+  const rectOf = v => {
+    // A just-inserted player often has no size yet: judge it by the nearest ancestor that has one (through shadow hosts).
+    for (let n = v, i = 0; n && i < 12; i++) {
+      const r = n.getBoundingClientRect();
+      if (r.width && r.height) return r;
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+    }
+    return null;
+  };
   const outside = v => {
     if (!v.isConnected) return false;
-    const r = v.getBoundingClientRect();
-    if (!r.width || !r.height) return false;
+    const r = rectOf(v);
+    if (!r) return false;
     return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth;
   };
   const outOfView = v => v._rbeInView === false || (v._rbeInView === undefined && outside(v));

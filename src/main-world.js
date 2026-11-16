@@ -77,10 +77,19 @@
   // passes here, closed shadow roots included, so a start while the video is wholly outside the viewport is
   // held until it comes in. Holding the call instead of pausing after it also keeps a player that restarts
   // its video on every pause from fighting us in a loop.
+  const rectOf = v => {
+    // A just-inserted player often has no size yet: judge it by the nearest ancestor that has one (through shadow hosts).
+    for (let n = v, i = 0; n && i < 12; i++) {
+      const r = n.getBoundingClientRect();
+      if (r.width && r.height) return r;
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+    }
+    return null;
+  };
   const outside = el => {
     if (!el.isConnected) return false;
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return false;          // not laid out yet: unknown, leave it to the page
+    const r = rectOf(el);
+    if (!r) return false;          // nothing laid out at all: unknown, leave it to the page
     return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth;
   };
   const held = new Set();          // page videos whose play() waits for them to come into view
