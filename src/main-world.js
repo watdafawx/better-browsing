@@ -70,11 +70,59 @@
   // players inside shadow roots: catch anything that starts anyway (autoplay attribute, internal resume)
   document.addEventListener('play', e => { if (behindLb(e.target)) e.target.pause(); }, true);
   const played = new Set();   // for the safety net below (media events don't leave shadow roots)
+
+  // Out of view (videoPauseOffscreen, `off` in the settings attribute). Reddit's players start a video a little
+  // before it scrolls in, and they re-mount or restart theirs after buffering. video.js only pauses what its
+  // scan found (light DOM, open shadow roots) and only when a video crosses the viewport's edge. Every play()
+  // passes here, closed shadow roots included, so a start while the video is wholly outside the viewport is
+  // held until it comes in. Holding the call instead of pausing after it also keeps a player that restarts
+  // its video on every pause from fighting us in a loop.
+  const outside = el => {
+    if (!el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;          // not laid out yet: unknown, leave it to the page
+    return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth;
+  };
+  const held = new Set();          // page videos whose play() waits for them to come into view
+  const closed = new WeakSet();    // videos in closed shadow roots: video.js cannot reach them, so we pause them
+  const resume = new WeakSet();    // ...and play them again when they come back, as video.js does for the rest
+  const closedRoot = el => { const r = el.getRootNode(); return r !== document && !!r.host && r.host.shadowRoot !== r; };
+  const viewIO = new IntersectionObserver(entries => {
+    const off = !!cfg().off;
+    for (const e of entries) {
+      const v = e.target;
+      if (e.isIntersecting) {
+        const go = held.delete(v) || resume.has(v);
+        resume.delete(v);
+        if (!closed.has(v)) viewIO.unobserve(v);
+        if (go && v.isConnected && v.paused) v.play().catch(() => {});
+      } else if (closed.has(v) && off && !v.paused) { v.pause(); resume.add(v); }
+    }
+  }, { threshold: 0.15 });
+  function trackClosed(v) {
+    if (closed.has(v)) return;
+    closed.add(v);
+    viewIO.observe(v);
+    v.addEventListener('pause', () => { if (userOn(v)) resume.delete(v); });   // the user's pause stays
+    v.addEventListener('play', () => {                // starts that never call play() (autoplay attribute)
+      if (behindLb(v)) { v.pause(); return; }
+      if (cfg().off && outside(v) && !userOn(v)) { v.pause(); resume.add(v); }
+    });
+  }
+  const origPause = P.pause;
+  P.pause = function () { held.delete(this); return origPause.apply(this, arguments); };   // the page changed its mind
+
   P.play = function () {
     if (behindLb(this)) return Promise.resolve();
     if (this instanceof HTMLVideoElement && !ours(this)) { // so the lightbox can pause it, even inside shadow DOM
       if (played.size > 40) for (const v of played) if (!v.isConnected) played.delete(v);
       played.add(this);
+      if (closedRoot(this)) trackClosed(this);
+      if (cfg().off && this.paused && outside(this) && !userOn(this)) {
+        held.add(this);
+        viewIO.observe(this);
+        return Promise.resolve();
+      }
     }
     if (!active(this)) return origPlay.apply(this, arguments);
     played.add(this);

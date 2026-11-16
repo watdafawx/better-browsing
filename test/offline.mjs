@@ -7,6 +7,8 @@ import { awayChecks, awayOk } from './lib/away.mjs';
 import path from 'path'; import fs from 'fs';
 
 const usFile = path.resolve('dist/better-browsing.user.js');
+const CLIP_BYTES = fs.readFileSync(path.resolve('test/fixtures/clip.webm'));
+const CLIP = 'data:video/webm;base64,' + CLIP_BYTES.toString('base64');
 if (!fs.existsSync(usFile)) { console.log('FAIL userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
 const b1 = await chromium.launch();
 const ctx = await b1.newContext({ viewport: { width: 1400, height: 900 } });
@@ -49,6 +51,7 @@ const fixtures = async route => {
   if (u.pathname.startsWith('/api/user_data_by_account_ids')) return json({});
   if (u.pathname.endsWith('/about.json')) return json({ data: {} });
   if (u.pathname.startsWith('/api/me')) return json({ data: {} });
+  if (/\/rbe-clip\d*\.mp4$/.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'video/webm', body: CLIP_BYTES });   // a real, playable clip
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
@@ -397,6 +400,145 @@ r.us = { built: true };
     host.remove();
     return { off, on };
   });
+  // Videos out of view: nothing plays while wholly outside the viewport, and what the page wanted playing
+  // starts when it comes in. Real clips, players in open and closed shadow roots, the ways Reddit's players
+  // start a video without our offscreen observer seeing an edge crossing.
+  r.us.offscreen = await p2.evaluate(async CLIP => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const OUT = '3000px', IN = '100px';
+    const mk = ({ mode = 'open', html, tag = 'shreddit-player' }) => {
+      const host = document.createElement(tag);
+      host.style.cssText = `position:fixed;left:0;top:${OUT};width:320px;height:180px;display:block;z-index:5`;
+      const root = host.attachShadow({ mode });
+      root.innerHTML = html;
+      document.body.append(host);
+      return { host, v: root.querySelector('video'), show(on) { host.style.top = on ? IN : OUT; }, done() { host.remove(); } };
+    };
+    const vid = (attrs = '') => `<video muted loop ${attrs} style="width:320px;height:180px"></video>`;
+    const playing = v => !v.paused;
+    const out = {};
+    // A: Reddit's player calls play() a little before its video scrolls in (open shadow root, already scanned)
+    let p = mk({ html: vid(`src="${CLIP}"`) });
+    await wait(1200);
+    p.v.play().catch(() => {});
+    await wait(700);
+    out.aOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.aIn = playing(p.v);
+    p.show(false); await wait(800);
+    out.aLeft = playing(p.v);
+    p.show(true); await wait(1000);
+    out.aBack = playing(p.v);
+    p.done();
+    // B: the same player in a closed shadow root (video.js can never find it)
+    p = mk({ mode: 'closed', tag: 'div', html: vid(`src="${CLIP}"`) });
+    await wait(300);
+    p.v.play().catch(() => {});
+    await wait(700);
+    out.bOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.bIn = playing(p.v);
+    p.show(false); await wait(800);
+    out.bLeft = playing(p.v);
+    p.show(true); await wait(1000);
+    out.bBack = playing(p.v);
+    p.done();
+    // C: autoplay attribute, the source arrives while the player is out of view (re-mount, lazy source)
+    p = mk({ html: vid('autoplay') });
+    await wait(1200);
+    p.v.src = CLIP;
+    await wait(900);
+    out.cOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.cIn = playing(p.v);
+    p.done();
+    // D: a player that (re)starts its video once it can play again after buffering, out of view
+    p = mk({ html: vid() });
+    await wait(1200);
+    p.v.addEventListener('canplay', () => p.v.play().catch(() => {}), { once: true });
+    p.v.src = CLIP;
+    await wait(900);
+    out.dOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.dIn = playing(p.v);
+    p.done();
+    // E: autoplay attribute with its source from the start: it plays before our scan finds it
+    p = mk({ html: vid(`autoplay src="${CLIP}"`) });
+    await wait(1500);
+    out.eOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.eIn = playing(p.v);
+    p.done();
+    // F: our own video, built and started, then inserted out of view
+    {
+      const box = document.createElement('div');
+      box.className = 'rbe-root';
+      box.style.cssText = `position:fixed;left:0;top:${OUT};width:320px;height:180px;z-index:5`;
+      const v = document.createElement('video');
+      v.src = CLIP; v.style.cssText = 'width:320px;height:180px';
+      RBE.setupOwnVideo(v);
+      box.append(v); document.body.append(box);
+      await wait(1000);
+      out.fOff = playing(v);
+      box.style.top = IN; await wait(1000);
+      out.fIn = playing(v);
+      RBE.destroyVideos(box); box.remove();
+    }
+    // G: the user paused it and pressed play again: that earlier pause must not stop it coming back later
+    {
+      const box = document.createElement('div');
+      box.style.cssText = `position:fixed;left:0;top:${IN};width:320px;height:180px;z-index:5`;
+      box.innerHTML = vid(`src="${CLIP}"`);
+      const v = box.firstChild;
+      document.body.append(box);
+      v.play().catch(() => {});
+      await wait(1500);
+      const click = () => v.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      click(); v.pause(); await wait(300);
+      out.gUserPaused = v.dataset.rbeUserPaused || null;
+      click(); v.play().catch(() => {}); await wait(1500);
+      box.style.top = OUT; await wait(800);
+      out.gLeft = playing(v);
+      box.style.top = IN; await wait(1000);
+      out.gBack = playing(v);
+      box.remove();
+    }
+    // I: lightbox open, an autoplay player inside a shadow root starts without calling play()
+    p = mk({ html: vid('autoplay') });
+    p.show(true);
+    await wait(1200);
+    document.documentElement.setAttribute('data-rbe-lb', '');
+    p.v.src = CLIP;
+    await wait(900);
+    out.iBehindLb = playing(p.v);
+    document.documentElement.removeAttribute('data-rbe-lb');
+    p.done();
+    return out;
+  }, CLIP);
+  // strip-mode lightbox: neighbours below the fold wait, and play once scrolled to
+  await p2.evaluate(() => RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, lightboxStyle: 'strip' } })));
+  await p2.waitForTimeout(400);
+  r.us.strip = await p2.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const ids = ['g1', 'g2', 'g3', 'g4', 'g5', 'g6'];
+    RBE.openLightbox({ scope: 'post', index: 0, postData: { name: 't3_sss', id: 'sss', title: 'Gifs', author: 'a', subreddit_name_prefixed: 'r/test',
+      permalink: '/r/test/comments/sss/g/', created_utc: 1, is_gallery: true, gallery_data: { items: ids.map(media_id => ({ media_id })) },
+      media_metadata: Object.fromEntries(ids.map((m, i) => [m, { status: 'valid', e: 'AnimatedImage', s: { mp4: `https://i.redd.it/rbe-clip${i}.mp4`, gif: `https://i.redd.it/g${i}.gif`, x: 800, y: 600 } }])) } });
+    const state = () => [...document.querySelectorAll('.rbe-lb video')].map(v => {
+      const r = v.getBoundingClientRect();
+      return { out: r.bottom <= 0 || r.top >= innerHeight, playing: !v.paused };
+    });
+    await wait(2000);
+    const first = state();
+    const vids = document.querySelectorAll('.rbe-lb video');
+    vids[vids.length - 1]?.scrollIntoView({ block: 'center' });
+    await wait(1500);
+    const later = state();
+    return { first, later };
+  });
+  await p2.keyboard.press('Escape');
+  await p2.evaluate(() => RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, lightboxStyle: 'step' } })));
+  await p2.waitForTimeout(300);
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
   await b2.close();
@@ -450,6 +592,16 @@ const checks = {
   'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
   'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
+  'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
+  'userscript: the same for a player in a closed shadow root': (o => o && !o.bOff && o.bIn && !o.bLeft && o.bBack)(r.us.offscreen),
+  'userscript: an autoplay player whose source arrives out of view waits until it comes in': (o => o && !o.cOff && o.cIn)(r.us.offscreen),
+  'userscript: a player restarting its video after buffering out of view waits until it comes in': (o => o && !o.dOff && o.dIn)(r.us.offscreen),
+  'userscript: an autoplay video that started before our scan is paused out of view and plays when it comes in': (o => o && !o.eOff && o.eIn)(r.us.offscreen),
+  'userscript: our own video inserted out of view does not play until it comes in': (o => o && !o.fOff && o.fIn)(r.us.offscreen),
+  'userscript: a user pause followed by the user\'s play does not stop the video coming back after it scrolls away': (o => o && o.gUserPaused === '1' && !o.gLeft && o.gBack)(r.us.offscreen),
+  'userscript: an autoplay player in a shadow root stays paused behind the lightbox': r.us.offscreen?.iBehindLb === false,
+  'userscript: strip lightbox: neighbours below the fold do not play; scrolled to, they do': (s => !!s && s.first.length > 2 && s.first[0].playing && s.first.some(x => x.out) && !s.first.some(x => x.out && x.playing)
+    && s.later[s.later.length - 1].playing && !s.later.some(x => x.out && x.playing))(r.us.strip),
 };
 
 let failed = 0;
