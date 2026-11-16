@@ -1,4 +1,4 @@
-/* Shared by all three sites: the settings form (each site's popup/popup.html + popup.js) in a shadow-DOM
+/* Shared by every site: the settings form (each site's popup/popup.html + popup.js) in a shadow-DOM
    panel over the page. build.js puts this once at the top of the userscript; each site makes its own:
      bbPanel({ cls, html, css, mount(root, close), onToggle(open) }) -> toggle()
    cls: the host's classes (the tests find the panel by them). Esc, the ✕ and a click on the backdrop close it. */

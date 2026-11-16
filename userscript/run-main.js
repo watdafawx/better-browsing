@@ -1,4 +1,4 @@
-/* Shared by all three sites: runMain(fn) runs a site's page-world hooks (its main-world files) in the
+/* Shared by every site: runMain(fn) runs a site's page-world hooks (its main-world files) in the
    page's own JS world. build.js puts this once at the top of the userscript.
    With @inject-into auto a manager may put the whole script in its content realm instead: Firefox does that
    when a nonce CSP (X, Reddit) blocks inline <script>s without the nonce ('unsafe-inline' is ignored once a

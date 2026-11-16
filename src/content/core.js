@@ -101,36 +101,44 @@
   // One inert document reused for every call (no scripts run, no images load) instead of a
   // new DOMParser document per comment.
   const doc = document.implementation.createHTMLDocument('');
+  // A URL from Reddit's markup or API is kept only when it parses and its scheme is one of `schemes`
+  // (http/https/mailto for links, http/https for images and embed frames). A regex on the raw attribute
+  // missed entity-encoded and whitespace-split schemes; URL parsing sees what the browser would load.
+  RBE.safeUrl = (value, schemes = ['http:', 'https:', 'mailto:']) => {
+    try { return schemes.includes(new URL(String(value ?? ''), 'https://www.reddit.com/').protocol); } catch { return false; }
+  };
+  const FRAME = ['http:', 'https:'];
+  RBE.safeFrameSrc = src => RBE.safeUrl(src, FRAME) ? src : '';
   RBE.sanitize = function (html) {
     const root = doc.createElement('div');
     root.innerHTML = html || '';
-    const walk = node => {
-      for (const c of [...node.children]) {
-        if (!ALLOWED.has(c.tagName)) { c.replaceWith(...c.childNodes); continue; }
-        for (const a of [...c.attributes]) {
-          const n = a.name.toLowerCase();
-          const keep = (n === 'href' && c.tagName === 'A') || (n === 'src' && c.tagName === 'IMG') ||
-            n === 'class' || n === 'title' || n === 'alt' || n === 'colspan' || n === 'rowspan' || n === 'align';
-          if (!keep || /^\s*(javascript|data|vbscript):/i.test(a.value)) c.removeAttribute(a.name);
-        }
-        if (c.tagName === 'IMG' && !IMG_HOST.test(c.getAttribute('src') || '')) { c.remove(); continue; }
-        if (c.tagName === 'A') {
-          const href = c.getAttribute('href') || '';
-          if (href.startsWith('/')) c.setAttribute('href', 'https://www.reddit.com' + href);
-          c.setAttribute('target', '_blank'); c.setAttribute('rel', 'noopener noreferrer');
-          // inline media links (comment images/gifs)
-          if (IMG_HOST.test(href) && /\.(jpe?g|png|webp|gif)(\?|$)|preview\.redd\.it|giphy/i.test(href) && !c.querySelector('img')) {
-            const img = doc.createElement('img');
-            img.setAttribute('src', href.replace(/&amp;/g, '&'));
-            img.className = 'rbe-inline-img';
-            img.setAttribute('loading', 'lazy');
-            c.replaceChildren(img);
-          }
-        }
-        walk(c);
+    // One element at a time. A tag outside the list is unwrapped and its moved children are cleaned
+    // in turn (snapshotting node.children before the loop skipped them: <font><img onerror></font>).
+    const clean = c => {
+      if (!ALLOWED.has(c.tagName)) { const kids = [...c.children]; c.replaceWith(...c.childNodes); kids.forEach(clean); return; }
+      for (const a of [...c.attributes]) {
+        const n = a.name.toLowerCase();
+        const url = (n === 'href' && c.tagName === 'A') || (n === 'src' && c.tagName === 'IMG');
+        const keep = url || n === 'class' || n === 'title' || n === 'alt' || n === 'colspan' || n === 'rowspan' || n === 'align';
+        if (!keep || (url && !RBE.safeUrl(a.value, n === 'src' ? FRAME : undefined))) c.removeAttribute(a.name);
       }
+      if (c.tagName === 'IMG' && !IMG_HOST.test(c.getAttribute('src') || '')) { c.remove(); return; }
+      if (c.tagName === 'A') {
+        const href = c.getAttribute('href') || '';
+        if (href.startsWith('/')) c.setAttribute('href', 'https://www.reddit.com' + href);
+        c.setAttribute('target', '_blank'); c.setAttribute('rel', 'noopener noreferrer');
+        // inline media links (comment images/gifs)
+        if (IMG_HOST.test(href) && /\.(jpe?g|png|webp|gif)(\?|$)|preview\.redd\.it|giphy/i.test(href) && !c.querySelector('img')) {
+          const img = doc.createElement('img');
+          img.setAttribute('src', href.replace(/&amp;/g, '&'));
+          img.className = 'rbe-inline-img';
+          img.setAttribute('loading', 'lazy');
+          c.replaceChildren(img);
+        }
+      }
+      [...c.children].forEach(clean);
     };
-    walk(root);
+    [...root.children].forEach(clean);
     return root.innerHTML;
   };
 

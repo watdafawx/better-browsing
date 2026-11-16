@@ -1,6 +1,6 @@
 # Instagram Better Browsing
 
-The Instagram part of the one userscript (`dist/better-browsing.user.js`), for instagram.com on desktop, Chrome and Firefox. `instagram/manifest.base.json` lists the scripts `build.js` puts into the userscript, in load order, and holds this part's version.
+The Instagram part of Better Browsing, published as its own userscript, **Better Browsing for Instagram** (`dist/better-browsing-instagram.user.js`), for instagram.com on desktop, Chrome and Firefox. `instagram/manifest.base.json` lists the scripts `build.js` puts into it, in load order, and holds this part's version.
 
 ## Features
 
@@ -26,7 +26,7 @@ The Instagram part of the one userscript (`dist/better-browsing.user.js`), for i
 
 ## Install
 
-Install the userscript with Tampermonkey or Violentmonkey: open https://github.com/watdafawx/reddit-better-browsing/releases/download/userscript/better-browsing.user.js and click **Install** (see the main [README](../README.md#install)). It runs in the page at document-start (`@grant none`) and keeps its settings in the page's localStorage.
+Install **Better Browsing for Instagram** with Tampermonkey or Violentmonkey: open https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-instagram.user.js and click **Install** (see the main [README](../README.md#install)). It runs in the page at document-start (`@grant none`) and keeps its settings in the page's localStorage.
 
 Settings: the **gear at the bottom of Instagram's left sidebar**, or <kbd>Alt</kbd>+<kbd>W</kbd> on any Instagram page. Both open the form in a panel over the page; <kbd>Esc</kbd> or a click outside closes it.
 

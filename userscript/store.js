@@ -1,4 +1,4 @@
-/* Shared by all three sites: the storage part of the extension API (`<site>.api.storage`), kept in the
+/* Shared by every site: the storage part of the extension API (`<site>.api.storage`), kept in the
    page's localStorage under one key. build.js puts this once at the top of the userscript.
    Layouts differ and must stay as they are, or users lose their settings: Reddit keeps both areas,
    { sync: {...}, local: {...} } (nested), Instagram and X keep only the sync area, flat. */

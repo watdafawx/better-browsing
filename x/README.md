@@ -1,6 +1,6 @@
 # X Better Browsing
 
-Part of the one userscript (`dist/better-browsing.user.js`) for x.com. `x/manifest.base.json` lists the scripts `build.js` puts into the userscript, in load order, and holds this part's version. It replaces these older single-purpose scripts: *Native Media Controls with autoplay*, *X - Auto unmute videos*, *One Click Copy Link Button for Twitter(X)*, *Retweet in one click & Like+Retweet* and the video part of *X.com Heavy JS Optimizer+*.
+The X part of Better Browsing, published as its own userscript, **Better Browsing for X** (`dist/better-browsing-x.user.js`; install: https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-x.user.js, see the main [README](../README.md#install)). `x/manifest.base.json` lists the scripts `build.js` puts into it, in load order, and holds this part's version. It replaces these older single-purpose scripts: *Native Media Controls with autoplay*, *X - Auto unmute videos*, *One Click Copy Link Button for Twitter(X)*, *Retweet in one click & Like+Retweet* and the video part of *X.com Heavy JS Optimizer+*.
 
 ## Features
 
@@ -27,7 +27,7 @@ Not carried over from the old optimizer script: timer and animation-frame thrott
 
 ## Test
 
-`npm run test:x` builds the userscript and loads it into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
+`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
 
 ## Firefox
 

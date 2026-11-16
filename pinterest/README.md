@@ -1,6 +1,7 @@
 # Pinterest Better Browsing
 
-Part of the one userscript (`dist/better-browsing.user.js`). This file describes the features and then holds what
+The Pinterest part of Better Browsing, published as its own userscript, **Better Browsing for Pinterest**
+(`dist/better-browsing-pinterest.user.js`; install: https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-pinterest.user.js). This file describes the features and then holds what
 a real logged-in session showed, so nobody has to re-discover it.
 
 ## Features

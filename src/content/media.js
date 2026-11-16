@@ -109,8 +109,9 @@
     // Embeds (YouTube, Streamable, etc.)
     const embedHtml = src.secure_media_embed?.content || src.media_embed?.content;
     if (embedHtml) {
+      // The iframe src comes from API markup: only an http(s) URL becomes a frame
       const m = RBE.decode(embedHtml).match(/src="([^"]+)"/);
-      if (m) return { items: [{ type: 'embed', src: m[1], w: src.secure_media_embed?.width, h: src.secure_media_embed?.height, url: /^https?:/i.test(url || '') ? url : '', site: src.media?.oembed?.provider_name || src.domain || '' }], kind: 'embed' };
+      if (m && RBE.safeFrameSrc(m[1])) return { items: [{ type: 'embed', src: m[1], w: src.secure_media_embed?.width, h: src.secure_media_embed?.height, url: /^https?:/i.test(url || '') ? url : '', site: src.media?.oembed?.provider_name || src.domain || '' }], kind: 'embed' };
     }
 
     // Last resort: Reddit's own silent preview of an external video (it has no audio track; the provider's

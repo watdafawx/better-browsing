@@ -229,7 +229,7 @@
         // frame far down the strip would otherwise play, with sound, behind the post you are reading.
         const frame = h('iframe', { class: 'rbe-lb-embed-frame', title: item.site || 'Embedded video',
           allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture', allowfullscreen: true });
-        RBE.lazyFrame(frame, item.src);
+        RBE.lazyFrame(frame, RBE.safeFrameSrc(item.src));
         return h('div', { class: cls + ' rbe-lb-embed', style: { aspectRatio: item.w && item.h ? `${item.w} / ${item.h}` : '16 / 9' } }, frame);
       }
       if (item.type === 'text') {

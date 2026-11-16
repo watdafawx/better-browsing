@@ -1,10 +1,16 @@
-// Runs every test: the userscript on each site in Chromium, and again in Firefox. The Reddit and Instagram
-// tests run their first part in Chromium either way and only their second part in BROWSER. Run: npm run test:all
+// Runs every test: builds every bundle, checks their headers, runs each site's test against that site's own
+// script in Chromium and again in Firefox, the double-install test in both, and the X test once more against the
+// combined script. The Reddit and Instagram tests run their first part in Chromium either way and only their
+// second part in BROWSER. Run: npm run test:all
 import { spawnSync } from 'child_process';
 
 const node = (...args) => ['node', args];
 const runs = [
   ['build', ...node('build.js')],
+  ['headers', ...node('test/headers.mjs')],
+  ['double install, Chromium', ...node('test/double-install.mjs')],
+  ['double install, Firefox', ...node('test/double-install.mjs'), { BROWSER: 'firefox' }],
+  ['X, Chromium, combined script', ...node('test/x-offline.mjs', 'dist/better-browsing.user.js')],
   ['X, Chromium', ...node('test/x-offline.mjs')],
   ['X, Firefox', ...node('test/x-offline.mjs'), { BROWSER: 'firefox' }],
   ['Reddit, Chromium', ...node('test/offline.mjs')],
