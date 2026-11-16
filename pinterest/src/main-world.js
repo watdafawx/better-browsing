@@ -36,7 +36,10 @@
   const ours = el => !!(el.dataset?.pinOwn || el.closest?.('.pin-root'));
   const active = el => {
     const m = cfg.mode;
-    return !!m && m !== 'default' && el instanceof HTMLVideoElement && !ours(el);
+    if (!m || m === 'default' || !(el instanceof HTMLVideoElement) || ours(el)) return false;
+    // Feed/grid videos stay muted unless the feed-sound option is on: Pinterest's own players, not our viewer.
+    if (m === 'volume' && !cfg.feed) return false;
+    return true;
   };
 
   // Videos that had to start muted because the browser blocked audible autoplay; unmute on first interaction.

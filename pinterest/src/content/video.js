@@ -104,7 +104,7 @@
   }
 
   function publish(s) {
-    document.documentElement.dataset.pinVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0 });
+    document.documentElement.dataset.pinVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, feed: s.feedSound === true });
     document.documentElement.classList.toggle('pin-native', s.nativeControls !== false);
   }
   PIN.onSettings(publish);
@@ -120,10 +120,12 @@
     return v.play().catch(err => {
       if (err && err.name === 'NotAllowedError' && !v.muted) {
         v.muted = true;
+        v.dataset.pinSoundBlocked = '1';
         const back = () => {
           ['pointerdown', 'keydown'].forEach(t => removeEventListener(t, back, true));
           if (!v.isConnected || !v.muted || v.dataset.pinUserAudio) return;
           v.muted = !(+PIN.settings.videoVolume) || PIN.settings.videoMode === 'muted';
+          delete v.dataset.pinSoundBlocked;
         };
         ['pointerdown', 'keydown'].forEach(t => addEventListener(t, back, true));
         return v.play().catch(() => {});
@@ -141,7 +143,18 @@
     v.controls = on;
     const vol = Math.max(0, Math.min(1, (+s.videoVolume || 0) / 100));
     if (s.videoMode === 'muted') v.muted = true;
-    else if (s.videoMode === 'volume' || s.videoMode === 'off') { v.volume = vol; v.muted = vol === 0; }
+    else if (s.videoMode !== 'default') { v.volume = vol; v.muted = vol === 0; }
+    // Clicking the picture plays or pauses, even with the browser's own controls: with autoplay off the viewer
+    // opens paused, and clicking the video (not its control bar) is what people try. A video the browser forced
+    // to start muted unmutes on that first click instead of pausing.
+    if (!v._pinToggle) {
+      v._pinToggle = e => {
+        if (v.controls && e.clientY > v.getBoundingClientRect().bottom - 46) return;   // let the control bar have it
+        if (!v.paused && v.muted && v.dataset.pinSoundBlocked) { v.muted = false; delete v.dataset.pinSoundBlocked; return; }
+        if (v.paused) PIN.tryPlay(v); else v.pause();
+      };
+      v.addEventListener('click', v._pinToggle);
+    }
     const wantsPlay = autoplay && s.videoMode !== 'off';
     if (wantsPlay) {
       v.dataset.pinWantPlay = '1';

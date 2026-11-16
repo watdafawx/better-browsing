@@ -124,6 +124,17 @@ r.boot = await page.evaluate(() => {
   };
 });
 
+// the feed-sound switch is published to the page (main-world leaves feed videos muted unless it is on)
+r.feed = await page.evaluate(async () => {
+  const { settings = {} } = await PIN.api.storage.sync.get('settings');
+  await PIN.api.storage.sync.set({ settings: { ...settings, feedSound: true } });
+  await new Promise(r => setTimeout(r, 250));
+  const on = document.documentElement.dataset.pinVideo;
+  await PIN.api.storage.sync.set({ settings: { ...settings, feedSound: false } });
+  await new Promise(r => setTimeout(r, 250));
+  return { on, off: document.documentElement.dataset.pinVideo };
+});
+
 // promoted pin is marked and hidden
 r.promoted = await page.evaluate(() => {
   const ad = document.querySelector('#pin-555555');
@@ -155,7 +166,7 @@ await page.keyboard.press('ArrowRight');
 await page.waitForTimeout(900);
 r.video = await page.evaluate(() => {
   const v = document.querySelector('.pin-lb video');
-  return { there: !!v, src: v?.getAttribute('src') || '', vol: v?.volume, muted: v?.muted, controls: v?.controls, own: v?.dataset.pinOwn || '', poster: v?.getAttribute('poster') || '' };
+  return { there: !!v, src: v?.getAttribute('src') || '', vol: v?.volume, muted: v?.muted, controls: v?.controls, own: v?.dataset.pinOwn || '', poster: v?.getAttribute('poster') || '', toggles: typeof v?._pinToggle === 'function' };
 });
 
 // next: the idea pin, page 1 then page 2
@@ -256,12 +267,39 @@ r.idle = await idleMutations(page, 2000);
 r.cost = await churnCost({ browserType: bt, name: FF ? 'firefox' : 'chromium', launchOpts: FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {}, route: { re: /pinterest\.com|pinimg\.com/, fn: fixtureRoute }, url: 'https://www.pinterest.com/perf', usFile });
 console.log(`PERF ${FF ? 'firefox' : 'chromium'}  idle=${r.idle}  script/CPU  with=${r.cost.with.toFixed(2)}  without=${r.cost.without.toFixed(2)}  viewer open=${r.viewer?.openSync}ms step=${r.viewer?.stepAvg}ms film=${r.viewer?.filmCount}`);
 
+// "no autoplay": the viewer opens paused, and clicking the picture starts it (no control-bar hit needed)
+await page.evaluate(async () => {
+  const { settings = {} } = await PIN.api.storage.sync.get('settings');
+  await PIN.api.storage.sync.set({ settings: { ...settings, videoMode: 'off' } });
+});
+await page.waitForTimeout(250);
+await page.evaluate(() => PIN.openLightbox({ pinId: '222222' }));
+await page.waitForTimeout(900);
+r.offMode = await page.evaluate(async () => {
+  const v = document.querySelector('.pin-lb video');
+  if (!v) return { there: false };
+  const calls = [];
+  v.play = () => { calls.push('play'); return Promise.resolve(); };   // the fixture mp4 has no bytes
+  const before = v.paused;
+  v.click();                                                          // click the picture, not the bar
+  await new Promise(r => setTimeout(r, 300));
+  return { there: true, before, calls: calls.length };
+});
+await page.keyboard.press('Escape');
+await page.evaluate(async () => {
+  const { settings = {} } = await PIN.api.storage.sync.get('settings');
+  await PIN.api.storage.sync.set({ settings: { ...settings, videoMode: 'volume' } });
+});
+await page.waitForTimeout(250);
+
 const checks = {
-  'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
+  'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40,"feed":false}' && r.boot.native && r.boot.snap,
+  'the feed-sound switch is published (off by default, on when set)': /"feed":true/.test(r.feed?.on || '') && /"feed":false/.test(r.feed?.off || ''),
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
   'a pin opens our viewer, not Pinterest\'s page (image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /(1200x|750x|736x|originals)\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
   'the pin\'s comments load in the side panel': /@bob/.test(r.image?.comments || '') && /first comment here/.test(r.image?.comments || '') && /second comment/.test(r.image?.comments || ''),
-  'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1',
+  'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1' && r.video.toggles,
+  'with no autoplay the viewer opens paused and clicking the picture starts it': r.offMode?.there && r.offMode.before === true && r.offMode.calls === 1,
   'an idea pin is a page sequence': /page 1 \/ 2/.test(r.story1?.count || '') && /p1\.jpg$/.test(r.story1?.src || '') && /page 2 \/ 2/.test(r.story2?.count || '') && /p2\.jpg$/.test(r.story2?.src || ''),
   'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /originals\/b\.jpg$/.test(r.nextPin?.src || ''),
   'Esc closes and unlocks the page': r.closed?.gone && r.closed.unlocked && !r.closed.attr,
