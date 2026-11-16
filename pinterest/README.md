@@ -8,6 +8,10 @@ a real logged-in session showed, so nobody has to re-discover it.
 - **Pin viewer** instead of Pinterest's close-up: click a pin in any grid. Wheel, arrows or the ‹ › buttons step
   through the loaded pins (the grid is virtualised, so it keeps its own id list and loads more by scrolling the
   page behind). An idea pin steps through its pages before moving on. Click the media to zoom.
+  - Fast first paint: the grid's own thumbnail is shown while the pin's data loads, and the next pin is prefetched.
+  - The stage uses a screen-sized rendition (`1200x`/`750x`/`736x`); the `originals`/`orig` file is fetched only
+    when you zoom, instead of on every step.
+  - The filmstrip is built once per entry list and only its `on` class changes per step.
 - **Side panel** with the pin's title, description, author, saves and comment count, and the comments themselves
   (first page of them, from `UnifiedCommentsResource`), with a link to read the rest on Pinterest.
 - **Video** at your volume (default 40%), muted, or no autoplay, using `video_list.V_720P`, the progressive mp4

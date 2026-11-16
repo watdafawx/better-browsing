@@ -12,7 +12,7 @@
 
 /* ---- pin viewer ---- */
 .pin-noscroll, .pin-noscroll body { overflow: hidden !important; }
-.pin-lb { position: fixed; inset: 0; z-index: 2147483400; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: rgba(8,8,10,.96); color: #f2f2f4; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.pin-lb { position: fixed; inset: 0; z-index: 2147483400; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #08080a; color: #f2f2f4; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; contain: layout paint style; }
 .pin-lb-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
 .pin-lb-count { font-weight: 600; font-variant-numeric: tabular-nums; color: #cfcfd6; white-space: nowrap; }
 .pin-lb-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
@@ -21,6 +21,7 @@
 .pin-lb-main { display: flex; min-height: 0; }
 .pin-lb-stagewrap { position: relative; flex: 1; min-width: 0; display: grid; }
 .pin-lb-stage { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
+.pin-lb-thumb { opacity: .85; }
 .pin-lb-media { max-width: calc(100% - 110px); max-height: 100%; object-fit: contain; border-radius: 10px; cursor: zoom-in; transition: transform .12s ease; transform-origin: center; }
 .pin-lb-media.zoomed { transform: scale(2.2); cursor: zoom-out; }
 .pin-lb-video { cursor: default; background: #000; max-width: calc(100% - 110px); }
