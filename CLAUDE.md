@@ -105,10 +105,14 @@ milestones. What code must not forget:
 - `hide.js` marks promoted cards (`PIN.isPromoted`, a label match) and one class on `<html>`
   (`.pin-hide-promoted`) hides them; the viewer skips them too.
 - Video: `main-world.js` owns the sound decision (`play`/`muted`/`volume`/`autoplay`), `video.js` publishes the
-  setting to `<html data-pin-video>`, marks our players `data-pin-own`, pauses offscreen and when hidden, and
-  retries a refused audible start muted. Scan `<video>` only (Pinterest's players are light DOM); a whole-document
-  attribute-substring query per mutation was the expensive part under Violentmonkey's Xray wrappers. New shadow
-  roots are looked for at most every 15s.
+  setting to `<html data-pin-video>` as `{mode, volume, feed}`, marks our players `data-pin-own`, pauses offscreen
+  and when hidden, and retries a refused audible start muted. `feed` is the "feed videos play with sound" switch:
+  when off (the default), `active()` is false for page videos in volume mode, so Pinterest's grid players stay
+  muted as the site intends; our viewer is unaffected. Our own video also toggles play/pause on a click on the
+  picture (not the control bar), and a click on a video the browser forced to start muted unmutes it instead of
+  pausing. Scan `<video>` only (Pinterest's players are light DOM); a whole-document attribute-substring query per
+  mutation was the expensive part under Violentmonkey's Xray wrappers. New shadow roots are looked for at most
+  every 15s.
 - Performance: `localStorage['pin-perf'] = '1'` + reload + `PIN.perf()` reports per-subscriber runs and total ms
   (`video-scan`, `video-interval`, `promoted`, `entry`), node count and long tasks. Keep the per-mutation work
   cheap: judge a promoted card once (WeakMap by child count), never re-read every card's text on each mutation.

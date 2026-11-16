@@ -15,8 +15,10 @@ a real logged-in session showed, so nobody has to re-discover it.
 - **Side panel** with the pin's title, description, author, saves and comment count, and the comments themselves
   (first page of them, from `UnifiedCommentsResource`), with a link to read the rest on Pinterest.
 - **Video** at your volume (default 40%), muted, or no autoplay, using `video_list.V_720P`, the progressive mp4
-  that carries AAC audio, in our own player. Pinterest's own players follow the same setting, pause when scrolled
-  out of view and when the tab/window loses focus (`main-world.js` + `video.js`).
+  that carries AAC audio, in our own player. With no autoplay the viewer opens paused and a click on the picture
+  starts it. Pinterest's own players follow the same setting, **except that feed/grid videos stay muted unless
+  you turn on "Feed videos play with sound"** (off by default, the way Pinterest intends), pause when scrolled out
+  of view and when the tab/window loses focus (`main-world.js` + `video.js`).
 - **Promoted pins** hidden from the grid (and skipped by the viewer) when the setting is on.
 - **Settings** in Pinterest's left sidebar (a clone of one of its nav items), an optional floating button, or
   <kbd>Alt</kbd>+<kbd>W</kbd>. Stored in `pin-userscript-settings` (flat, like Instagram and X).

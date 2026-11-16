@@ -5,6 +5,7 @@ PIN.DEFAULTS = {
   // Video
   videoMode: 'volume',        // default (Pinterest decides) | volume | muted | off (no autoplay)
   videoVolume: 40,            // 0-100
+  feedSound: false,           // feed/grid videos play with sound (off: they stay muted, as Pinterest intends)
   nativeControls: true,       // browser controls on pin videos
   videoLoop: true,
   videoPauseOffscreen: true,
