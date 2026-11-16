@@ -63,8 +63,23 @@
   RBE.getJSON = async function (pathOrUrl, opts) {
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : location.origin + pathOrUrl;
     for (let left = opts?.retries || 0; ; left--) {
-      const r = await pageFetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
-      if (r.ok) return r.json();
+      const controller = new AbortController();
+      let timer;
+      let r;
+      try {
+        const result = await Promise.race([
+          (async () => {
+            const response = await pageFetch(url, { credentials: 'include', headers: { Accept: 'application/json' }, signal: controller.signal });
+            return { response, data: response.ok ? await response.json() : null };
+          })(),
+          new Promise((_, reject) => { timer = setTimeout(() => {
+            reject(new Error('Request timed out for ' + url));
+            controller.abort();
+          }, opts?.timeoutMs ?? 10000); })
+        ]);
+        r = result.response;
+        if (r.ok) return result.data;
+      } finally { clearTimeout(timer); }
       if (left > 0 && (r.status === 429 || r.status >= 500)) {
         const ra = Number(r.headers.get('retry-after'));
         const wait = ra > 0 ? Math.min(ra, 5) : 1.5 * (((opts.retries || 0) - left) + 1);

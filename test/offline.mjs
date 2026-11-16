@@ -555,11 +555,73 @@ r.us = { built: true };
   await p2.waitForTimeout(300);
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
+  // Every JSON fallback refuses access: stop on an unavailable post, then accept another step.
+  const blocked = await c2.newPage();
+  const blockedRequests = [];
+  await blocked.route(/reddit\.com/, route => {
+    const u = new URL(route.request().url());
+    if (/info\.json|\/by_id\/|\/comments\/.*\.json/.test(u.pathname)) {
+      blockedRequests.push(u.pathname);
+      return route.fulfill({ status: 403, body: '' });
+    }
+    if (u.pathname === '/r/blocked/') return route.fulfill({ contentType: 'text/html', body: `<shreddit-feed>${['blocked1', 'blocked2', 'blocked3'].map((id, i) =>
+      `<shreddit-post id="t3_${id}" post-type="image" permalink="/r/test/comments/${id}/post/" ${i === 1 ? '' : 'content-href="https://i.redd.it/blocked.png"'}></shreddit-post>`).join('')}</shreddit-feed>` });
+    return fixtures(route);
+  });
+  await blocked.goto('https://www.reddit.com/r/blocked/');
+  await blocked.waitForFunction(() => !!window.RBE?.openLightbox && !!RBE.settings);
+  await blocked.waitForTimeout(200);
+  await blocked.evaluate(() => {
+    RBE.settings.lightboxPosts = 'images';
+    RBE.settings.lightboxStyle = 'step';
+    window.blockedLb = RBE.openLightbox({ postId: 't3_blocked1', scope: 'feed' });
+  });
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-count')?.textContent === 'post 1/3');
+  await blocked.keyboard.press('ArrowDown');
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-err')?.textContent.includes('Couldn’t load this post') && document.querySelector('.rbe-lb-count')?.textContent === 'post 2/3', null, { timeout: 3000 });
+  await blocked.keyboard.press('j');
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-count')?.textContent === 'post 3/3', { timeout: 3000 });
+  r.us.blockedStep = true;
+  const batchCount = () => blockedRequests.filter(u => /info\.json|\/by_id\//.test(u)).length;
+  const beforeRetry = batchCount();
+  await blocked.evaluate(() => RBE.getPost('t3_blocked4'));
+  const duringCooldown = batchCount();
+  await blocked.evaluate(async () => {
+    const now = Date.now;
+    Date.now = () => now() + 61000;
+    try { await RBE.getPost('t3_blocked5'); } finally { Date.now = now; }
+  });
+  r.us.batchRetry = beforeRetry === 2 && duringCooldown === beforeRetry && batchCount() === beforeRetry + 2;
+  await blocked.route('**/hung.json', () => {});
+  r.us.fetchTimeout = await blocked.evaluate(async () => {
+    try { await RBE.getJSON('/hung.json', { timeoutMs: 50 }); return false; }
+    catch (err) { return /timed out/.test(err.message); }
+  });
+  await blocked.clock.install();
+  await blocked.evaluate(() => {
+    const lb = window.blockedLb;
+    window.savedItems = lb.items;
+    lb.items = () => new Promise(() => {});
+    window.stalledStep = lb.step(-1);
+  });
+  await blocked.clock.runFor(15001);
+  r.us.stepWatchdog = await blocked.evaluate(async () => {
+    await window.stalledStep;
+    const lb = window.blockedLb, released = !lb.busy;
+    lb.items = window.savedItems;
+    await lb.step(-1);
+    return released && !lb.busy && lb.pi === 1;
+  });
+  await blocked.close();
   await b2.close();
   r.us.cost = await churnCost({ browserType: bt, name: r.us.browser, launchOpts, route: { re: /reddit\.com|redd\.it|redditstatic/, fn: fixtures }, url: 'https://www.reddit.com/r/test/', usFile });
 }
 
 const checks = {
+  'userscript: all JSON endpoints 403 still allow lightbox steps': r.us.blockedStep,
+  'userscript: batch endpoints retry after cooldown': r.us.batchRetry,
+  'userscript: hung JSON fetch times out': r.us.fetchTimeout,
+  'userscript: stalled step watchdog releases navigation': r.us.stepWatchdog,
   ...awayOk('userscript (' + (r.us.browser || '') + ')', r.us.away || {}),
   'theme style injected': r.themeStyle,
   'quick bar shown': r.quickbar,

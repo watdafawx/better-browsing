@@ -149,8 +149,8 @@
         try {
           // prefetch a window of posts in one request (a smaller one when each post needs its own request)
           const ids = this.entries.slice(Math.max(0, pi - 2), pi + (RBE.perPostFetch ? 3 : 8)).map(x => x.id);
-          await RBE.getPosts(ids);
           const d = await RBE.getPost(e.id);
+          RBE.getPosts(ids).catch(err => console.warn('[RBE] prefetch failed', err));
           e.data = d;
           e.items = d ? postItems(d) : [];
         } catch (err) {
@@ -368,31 +368,40 @@
     async step(dir) {
       if (this.busy) return;
       this.busy = true;
+      let timer;
+      const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Lightbox step timed out')), 15000); });
+      const wait = p => Promise.race([p, deadline]);
       try {
         let pi = this.pi, ii = this.ii + dir;
-        let items = await this.items(pi);
+        let items = await wait(this.items(pi));
         for (let guard = 0; guard < 30; guard++) {
           if (ii >= 0 && ii < items.length) break;
           pi += dir;
-          if (pi >= this.entries.length && !(await this.moreFeed())) { RBE.toast('End of loaded feed'); return; }
+          if (pi >= this.entries.length && !(await wait(this.moreFeed()))) { RBE.toast('End of loaded feed'); return; }
           if (pi < 0) { RBE.toast('First image'); return; }
-          items = await this.items(pi);
+          items = await wait(this.items(pi));
           ii = dir > 0 ? 0 : items.length - 1;
+          if (!items.length) break;
         }
         if (pi !== this.pi) this.entries[this.pi]?.el?.classList.remove('rbe-lb-current');
         this.pi = pi; this.ii = ii;
-        await this.show();
-      } finally { this.busy = false; }
+        await wait(this.show());
+      } catch (err) {
+        console.warn('[RBE] lightbox step failed', err);
+        RBE.toast('Couldn’t load this post. Try again.');
+      } finally { clearTimeout(timer); this.busy = false; }
     }
     async show() {
-      const items = await this.items(this.pi);
+      const pi = this.pi;
+      const items = await this.items(pi);
+      if (this.pi !== pi || !this.root.isConnected) return;
       if (!items.length) {
         // Don't auto-skip: that can run off the feed and scroll the page to the bottom
         const e = this.entries[this.pi], link = e?.data?.permalink || e?.el?.getAttribute('permalink');
         this.media = null;
         this.stage.replaceChildren(h('div', { class: 'rbe-lb-err' }, 'Couldn’t load this post. ',
           link ? h('a', { href: link, onclick: ev => { ev.preventDefault(); this.openPost(); } }, 'Open post') : null));
-        this.counter.textContent = ''; this.caption.hidden = true; this.film.hidden = true;
+        this.counter.textContent = `post ${this.pi + 1}/${this.entries.length}`; this.caption.hidden = true; this.film.hidden = true;
         this.curItem = null; this.renderSide();
         return;
       }
