@@ -1,4 +1,4 @@
-// Offline smoke test for the Instagram part of the userscript: runs dist/better-browsing.user.js in Chromium
+// Offline smoke test for the Instagram part of the userscript: runs dist/better-browsing-instagram.user.js (US_FILE= another bundle) in Chromium
 // and answers every instagram.com / cdn request from fixtures below, so it never touches live Instagram.
 // The last part runs it again in BROWSER (chromium, or firefox). Run: npm run test:instagram.
 import { chromium, firefox } from 'playwright';
@@ -6,7 +6,7 @@ import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 import { awayChecks, awayOk } from './lib/away.mjs';
 import path from 'path'; import fs from 'fs';
 
-const usFile = path.resolve('dist/better-browsing.user.js');
+const usFile = path.resolve(process.env.US_FILE || 'dist/better-browsing-instagram.user.js');
 if (!fs.existsSync(usFile)) { console.log('FAIL  userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
 const b1 = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const ctx = await b1.newContext({ viewport: { width: 1400, height: 900 } });

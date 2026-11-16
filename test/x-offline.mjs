@@ -1,11 +1,11 @@
-// Offline smoke test for the X part of the userscript: loads dist/better-browsing.user.js into plain Chromium
+// Offline smoke test for the X part of the userscript: loads dist/better-browsing-x.user.js (or the file in argv[2] / US_FILE) into plain Chromium
 // and answers every x.com request from fixtures below, so it never touches live X.
 // Run: npm run test:x
 import { chromium, firefox } from 'playwright';
 import path from 'path'; import fs from 'fs';
 import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 
-const usFile = path.resolve(process.argv[2] || 'dist/better-browsing.user.js');
+const usFile = path.resolve(process.argv[2] || process.env.US_FILE || 'dist/better-browsing-x.user.js');
 const CLIP = fs.readFileSync(path.resolve('test/fixtures/clip.webm'));
 
 // ---------- fixtures ----------

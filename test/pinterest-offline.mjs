@@ -4,7 +4,7 @@ import { chromium, firefox } from 'playwright';
 import path from 'path'; import fs from 'fs';
 import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 
-const usFile = path.resolve('dist/better-browsing.user.js');
+const usFile = path.resolve(process.env.US_FILE || 'dist/better-browsing-pinterest.user.js');
 if (!fs.existsSync(usFile)) { console.log('FAIL userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
 const FF = process.env.BROWSER === 'firefox', bt = FF ? firefox : chromium;
 const browser = await bt.launch(FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {});

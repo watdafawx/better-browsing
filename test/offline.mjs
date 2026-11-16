@@ -1,4 +1,4 @@
-// Offline smoke test: runs the userscript (dist/better-browsing.user.js) in Chromium and answers every
+// Offline smoke test: runs the Reddit userscript (dist/better-browsing-reddit.user.js; US_FILE= another bundle) in Chromium and answers every
 // reddit.com request from fixtures below, so it never touches live Reddit. Run: npm test.
 // The second part runs it again in BROWSER (chromium, or firefox) for the panel, perf and away checks.
 import { chromium, firefox } from 'playwright';
@@ -6,7 +6,7 @@ import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 import { awayChecks, awayOk } from './lib/away.mjs';
 import path from 'path'; import fs from 'fs';
 
-const usFile = path.resolve('dist/better-browsing.user.js');
+const usFile = path.resolve(process.env.US_FILE || 'dist/better-browsing-reddit.user.js');
 const CLIP_BYTES = fs.readFileSync(path.resolve('test/fixtures/clip.webm'));
 const CLIP = 'data:video/webm;base64,' + CLIP_BYTES.toString('base64');
 if (!fs.existsSync(usFile)) { console.log('FAIL userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
@@ -97,6 +97,20 @@ r.sanitize = await page.evaluate(() => ({
   link: document.querySelector('.rbe-c-body a')?.getAttribute('href'),
   target: document.querySelector('.rbe-c-body a')?.getAttribute('target'),
 }));
+// Sanitizer and embed-URL security: unwrapped tags must not shield their children, schemes are parsed
+r.sanitizeSec = await page.evaluate(() => {
+  const s = RBE.sanitize;
+  return {
+    font: s('<font><img src="https://i.redd.it/a.png" onerror="alert(1)"></font>'),
+    nested: s('<font><center><a href="javascript:alert(1)" onclick="x()">n</a></center></font>'),
+    tab: s('<a href="java&#x09;script:alert(1)">t</a><a href="&#x20;JaVaScRiPt:alert(1)">u</a>'),
+    vb: s('<a href="vbscript:x">v</a><a href="data:text/html,x">d</a><a href="blob:https://x/y">b</a>'),
+    ok: s('<a href="mailto:a@b.c">m</a><a href="https://example.com/x">h</a><a href="/r/test/">r</a>'),
+    embedJs: RBE.extractMedia({ is_self: false, url: 'https://example.com/v', secure_media_embed: { content: '&lt;iframe src="javascript:alert(1)"&gt;&lt;/iframe&gt;' } }).items.some(i => i.type === 'embed'),
+    embedOk: RBE.extractMedia({ is_self: false, url: 'https://www.youtube.com/watch?v=a', secure_media_embed: { content: '&lt;iframe src="https://www.youtube.com/embed/a"&gt;&lt;/iframe&gt;' } }).items[0]?.type,
+    frame: !!RBE.safeFrameSrc && RBE.safeFrameSrc('javascript:alert(1)') === '',
+  };
+});
 r.cv = await page.evaluate(() => getComputedStyle(document.querySelector('.rbe-comments > .rbe-c')).contentVisibility);
 // load more
 await page.click('.rbe-viewer .rbe-more');
@@ -555,6 +569,9 @@ const checks = {
   'click reuses prefetch': r.reqsOnOpen === 0,
   'comments rendered': r.commentCount === 61,
   'unsafe html stripped': !/onerror|<script|javascript:/i.test(r.sanitize.body) && r.sanitize.evilImg === 0,
+  'sanitizer cleans the children of an unwrapped tag (<font><img onerror>)': !/onerror/i.test(r.sanitizeSec.font) && /<img[^>]+i.redd.it/.test(r.sanitizeSec.font) && !/onclick|javascript/i.test(r.sanitizeSec.nested) && /<a /.test(r.sanitizeSec.nested),
+  'sanitizer parses link schemes (tab/space/case tricks, vbscript, data, blob dropped; http, mailto, relative kept)': !/href/.test(r.sanitizeSec.tab) && !/href/.test(r.sanitizeSec.vb) && (r.sanitizeSec.ok.match(/href=/g) || []).length === 3 && /href="mailto:a@b.c"/.test(r.sanitizeSec.ok),
+  'embed iframe src from API markup must be http(s)': r.sanitizeSec.embedJs === false && r.sanitizeSec.embedOk === 'embed' && r.sanitizeSec.frame,
   'relative links absolutized': r.sanitize.link === 'https://www.reddit.com/r/test/comments/bbb/x/',
   'load more works': r.afterMore === 63,
   'collapse shows count': r.collapsed === ' (+1)',

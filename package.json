@@ -1,9 +1,15 @@
 {
-  "name": "reddit-better-browsing",
-  "version": "1.3.20",
-  "userscriptRevision": 0,
+  "name": "better-browsing",
+  "version": "1.3.21",
+  "userscriptRevision": {
+    "reddit": 0,
+    "instagram": 0,
+    "x": 0,
+    "pinterest": 0,
+    "combined": 0
+  },
   "private": true,
-  "description": "One userscript (Tampermonkey / Violentmonkey) for new Reddit, Instagram, X and Pinterest",
+  "description": "Userscripts (Tampermonkey / Violentmonkey) for new Reddit, Instagram, X and Pinterest, one per site",
   "license": "MIT",
   "scripts": {
     "build": "node build.js",
@@ -11,8 +17,10 @@
     "test:instagram": "node build.js && node test/instagram-offline.mjs",
     "test:x": "node build.js && node test/x-offline.mjs",
     "test:pinterest": "node build.js && node test/pinterest-offline.mjs",
-    "release:userscript": "gh release upload userscript dist/better-browsing.user.js --clobber",
-    "test:all": "node test/all.mjs"
+    "test:headers": "node build.js && node test/headers.mjs",
+    "test:double": "node build.js && node test/double-install.mjs",
+    "test:all": "node test/all.mjs",
+    "release:userscript": "node release.mjs"
   },
   "devDependencies": {
     "playwright": "1.49.1"
