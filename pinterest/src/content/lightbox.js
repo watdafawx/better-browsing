@@ -20,26 +20,38 @@
     return out;
   }
 
-  // The viewer shows a screen-sized rendition and only pulls the original when zoomed: `orig` is often several
-  // megabytes, and loading one per step is what made stepping feel slow.
+  // Pinterest's `originals` bucket answers 403 for many story-pin pages while the sized buckets of the same file
+  // still work, so sized renditions come first, and an `originals` URL also yields its sized twins.
+  const BUCKETS = ['1200x', '750x', '736x', '564x', '474x', '236x'];
+  const ZOOM = ['1200x', '750x', '736x'];
+  function sizes(p) {
+    const out = [];
+    for (const k of BUCKETS) { const u = p?.images?.[k]?.url; if (u) out.push(u); }
+    const orig = p?.images?.orig?.url || p?.images?.originals?.url;
+    const m = orig && /^(https:\/\/i\.pinimg\.com\/)(?:orig|originals)(\/.+)$/.exec(orig);
+    if (m) for (const k of BUCKETS) out.push(m[1] + k + m[2]);
+    if (orig) out.push(orig);
+    return [...new Set(out)];
+  }
   const firstUrl = (p, keys) => { for (const k of keys) { const u = p?.images?.[k]?.url; if (u) return u; } return ''; };
-  const DISPLAY = ['1200x', '750x', '736x', '564x', '474x'];
-  const FULL = ['orig', 'originals', '1200x', '750x'];
-  const imgOf = p => firstUrl(p, FULL);
-  const displayOf = p => firstUrl(p, DISPLAY) || imgOf(p);
+  const zoomUrl = p => firstUrl(p, ZOOM);
+  const displayOf = p => sizes(p)[0] || '';
   const num = n => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n));
 
   // One pin -> what the viewer shows. `pages` is an idea pin (story_pin_data).
   function toItem(p) {
     if (!p) return null;
+    const pinSizes = sizes(p);
     const story = p.story_pin_data;
     if (story?.pages?.length) {
       const pages = story.pages.map(pg => {
-        const vid = pg.video?.video_list?.V_720P?.url || pg.video?.video_list?.V_HLSV4?.url || '';
+        // only a progressive mp4 can play here: an HLS rendition would be a black box in Chrome and Firefox
+        const list = pg.video?.video_list || {};
+        const vid = list.V_720P?.url || Object.values(list).map(v => v?.url).find(u => /\.mp4/i.test(u || '')) || '';
         const blocks = (pg.blocks || []).map(b => b.image);
-        const img = displayOf(pg.image) || blocks.map(displayOf).find(Boolean) || '';
-        const full = imgOf(pg.image) || blocks.map(imgOf).find(Boolean) || '';
-        return { video: vid, image: img, full };
+        const base = pg.image && sizes(pg.image).length ? pg.image : blocks.find(b => sizes(b).length);
+        const cand = [...sizes(base), ...sizes(pg.image), ...pinSizes];   // the pin's own image is the last resort
+        return { video: vid, image: cand[0] || '', candidates: cand, full: zoomUrl(base) };
       }).filter(x => x.video || x.image);
       if (pages.length) return { type: 'story', pages, pin: p };
     }
@@ -47,7 +59,7 @@
     const video = list ? (list.V_720P?.url || Object.values(list).map(v => v?.url).find(u => /\.mp4/i.test(u || '')) || '') : '';
     if (video) return { type: 'video', src: video, poster: displayOf(p), pin: p };
     const img = displayOf(p);
-    return img ? { type: 'image', src: img, full: imgOf(p), pin: p } : null;
+    return img ? { type: 'image', src: img, candidates: pinSizes, full: zoomUrl(p), pin: p } : null;
   }
 
   class Viewer {
@@ -136,15 +148,27 @@
     mediaFor(item, pg) {
       if (item.type === 'story') {
         const p = item.pages[pg] || {};
-        return p.video ? this.video(p.video, p.image) : this.image(p.image, p.full);
+        return p.video ? this.video(p.video, p.image) : this.image(p.image, p.full, p.candidates);
       }
       if (item.type === 'video') return this.video(item.src, item.poster);
-      return this.image(item.src, item.full);
+      return this.image(item.src, item.full, item.candidates);
     }
 
-    image(src, full) {
+    image(src, full, candidates) {
       if (!src) return null;
-      const img = h('img', { class: 'pin-lb-media', src, alt: '', draggable: 'false', decoding: 'async', 'data-full': full || '' });
+      const list = (candidates && candidates.length ? candidates : [src]);
+      const img = h('img', { class: 'pin-lb-media', src: list[0], alt: '', draggable: 'false', decoding: 'async', 'data-full': full || '' });
+      // Every rendition can fail (Pinterest 403s `originals` for some pins): walk the list, then the grid's own
+      // thumbnail, and only then say so.
+      let tries = 0;
+      img.addEventListener('error', () => {
+        tries++;
+        if (list[tries]) { img.setAttribute('src', list[tries]); return; }
+        const thumb = this.entries[this.pi]?.thumb;
+        if (thumb && img.getAttribute('src') !== thumb) { img.setAttribute('src', thumb); return; }
+        img.replaceWith(h('div', { class: 'pin-lb-err' }, 'This pin’s image would not load. ',
+          h('a', { href: 'https://www.pinterest.com/pin/' + (this.entries[this.pi]?.id || '') + '/', target: '_blank', rel: 'noopener' }, 'Open on Pinterest')));
+      });
       img.addEventListener('click', e => this.zoom(e, img));
       return img;
     }

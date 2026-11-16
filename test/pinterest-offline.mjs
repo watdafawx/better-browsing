@@ -39,6 +39,13 @@ const PINS = {
     pinner: { username: 'carol' }, comment_count: 0,
   },
   '444444': { id: '444444', title: 'Second image', images: { orig: { url: 'https://i.pinimg.com/originals/b.jpg' } }, pinner: { username: 'dave' } },
+  // a story page whose only rendition is `originals`, which Pinterest 403s for many pages
+  '777777': { id: '777777', title: 'Broken original', pinner: { username: 'x' },
+    story_pin_data: { page_count: 1, pages: [{ image: { images: { orig: { url: 'https://i.pinimg.com/originals/broken.jpg' } } }, blocks: [], video: null }] } },
+  // a story page with only an HLS rendition: no progressive mp4, so the page image must be used
+  '888888': { id: '888888', title: 'HLS only page', pinner: { username: 'y' },
+    story_pin_data: { page_count: 1, pages: [{ image: { images: { orig: { url: 'https://i.pinimg.com/originals/hls.jpg' } } }, blocks: [],
+      video: { video_list: { V_HLSV4: { url: 'https://v1.pinimg.com/videos/iht/hls/x.m3u8' } } } }] } },
 };
 
 const feed = `<!doctype html><html><head><title>Pinterest fixture</title></head><body>
@@ -90,6 +97,7 @@ const fixtureRoute = route => {
     const data = id ? (PINS[id] || (String(id).startsWith('9') ? perfPin(id) : null)) : null;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resource_response: { status: 'success', code: 0, data } }) });
   }
+  if (/\/originals\//.test(u.pathname)) return route.fulfill({ status: 403, body: '' });   // Pinterest 403s `originals` for many pins
   if (/\.(jpg|jpeg|png|webp)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: png });
   if (/\.(mp4|m3u8)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'video/mp4', body: '' });
   if (u.pathname === '/perf') return route.fulfill({ status: 200, contentType: 'text/html', body: perfFeed });
@@ -229,6 +237,23 @@ r.resume = await page.evaluate(() => new Promise(res => {
   }, 900);
 }));
 
+// renditions that fail: `originals` 403s for many story pages, and an HLS-only page video cannot play here
+r.fallback = await page.evaluate(async () => {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  PIN.openLightbox({ pinId: '777777' });
+  await wait(900);
+  const img = document.querySelector('.pin-lb-stage img');
+  const out = { src: img?.getAttribute('src') || '', natural: img?.naturalWidth || 0 };
+  PIN.openLightbox({ pinId: '888888' });
+  await wait(900);
+  out.hlsImg = !!document.querySelector('.pin-lb-stage img');
+  out.hlsVideo = !!document.querySelector('.pin-lb-stage video');
+  out.hlsSrc = document.querySelector('.pin-lb-stage img')?.getAttribute('src') || '';
+  PIN.closeLightbox?.();
+  return out;
+});
+await page.waitForTimeout(300);
+
 // viewer on the big grid: opening must not block, and a step must not rebuild the filmstrip or pull an original
 await page.goto('https://www.pinterest.com/perf');
 await page.waitForTimeout(1200);
@@ -301,7 +326,7 @@ const checks = {
   'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1' && r.video.toggles,
   'with no autoplay the viewer opens paused and clicking the picture starts it': r.offMode?.there && r.offMode.before === true && r.offMode.calls === 1,
   'an idea pin is a page sequence': /page 1 \/ 2/.test(r.story1?.count || '') && /p1\.jpg$/.test(r.story1?.src || '') && /page 2 \/ 2/.test(r.story2?.count || '') && /p2\.jpg$/.test(r.story2?.src || ''),
-  'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /originals\/b\.jpg$/.test(r.nextPin?.src || ''),
+  'after the last page it moves to the next pin': /pin 4 \/ 4/.test(r.nextPin?.count || '') && /(1200x|750x|736x|originals)\/b\.jpg$/.test(r.nextPin?.src || ''),
   'Esc closes and unlocks the page': r.closed?.gone && r.closed.unlocked && !r.closed.attr,
   'the promoted switch brings them back': r.unhidden?.display !== 'none',
   'a video that was playing when it left the view comes back when it returns': r.resume?.marked === '1' && r.resume.resumed === true && r.resume.plays >= 2,
@@ -309,7 +334,9 @@ const checks = {
   'the opt-in perf probe answers with a snapshot': r.perfApi?.fn && r.perfApi.snap?.uptimeMs > 0 && typeof r.perfApi.snap.runs === 'object',
   'the viewer opens without blocking and steps cheaply (120 pins)': r.viewer?.openSync < 500 && r.viewer.stepAvg < 400 && r.viewer.stageChanged && /pin 9 \/ 120/.test(r.viewer.count || ''),
   'the filmstrip is built once and reused across steps': r.viewer?.filmStable === true && r.viewer.filmCount === 120,
-  'the stage uses a screen-sized image and keeps the original for zoom': r.viewer?.usesDisplaySize === true && /originals\//.test(r.viewer?.fullOnZoom || ''),
+  'the stage uses a screen-sized image and keeps a larger one for zoom': r.viewer?.usesDisplaySize === true && /(1200x|750x|736x)\//.test(r.viewer?.fullOnZoom || ''),
+  'a story page whose only rendition 403s falls back to a sized bucket of the same file': /1200x\/broken\.jpg$/.test(r.fallback?.src || '') && r.fallback?.natural > 0,
+  'a page video with only an HLS rendition shows the page image instead of a black player': r.fallback?.hlsImg === true && r.fallback?.hlsVideo === false && /(1200x|736x)\/hls\.jpg$/.test(r.fallback?.hlsSrc || ''),
   ['on a page that keeps changing, the script adds little work (' + (FF ? 'firefox' : 'chromium') + ')']: costOk(FF ? 'firefox' : 'chromium', r.cost),
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };
