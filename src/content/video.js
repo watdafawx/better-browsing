@@ -19,19 +19,49 @@
   addEventListener('blur', () => setTimeout(() => { if (!document.hasFocus()) { blurred = true; pauseAway(); } }));
   addEventListener('focus', () => { blurred = false; });
 
+  // A click/key on THIS video's player in the last moment: the video, its own container a level or two up, or
+  // anything in the same shadow root. Never as far up as <body>, or every earlier click would count for every
+  // video. Comparing root nodes alone would call any earlier click on the page a gesture on this video.
+  const userOn = v => {
+    if (!gesture() || !lastTarget) return false;      // long after any click: the page's doing, not the user's
+    if (lastTarget === v) return true;
+    const root = v.getRootNode();
+    if (root !== document) return lastTarget.getRootNode?.() === root;
+    let p = v;
+    for (let i = 0; i < 2 && p; i++, p = p.parentElement) {
+      if (!p || p === document.body || p === document.documentElement) break;
+      if (p.contains(lastTarget)) return true;
+    }
+    return false;
+  };
+
+  // Wholly outside the viewport (the observer's "not intersecting"). Until the observer has reported on a video
+  // its rect decides: our own players are started before they are inserted, and a play()/'playing' can come
+  // before the first report. Not laid out yet (detached, no size): unknown, so not "outside".
+  const outside = v => {
+    if (!v.isConnected) return false;
+    const r = v.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth;
+  };
+  const outOfView = v => v._rbeInView === false || (v._rbeInView === undefined && outside(v));
+
   const seen = new WeakSet();
   const io = new IntersectionObserver(entries => {
     const s = RBE.settings;
     for (const e of entries) {
       const v = e.target;
+      v._rbeInView = e.isIntersecting;
       if (v.dataset.rbeOwn) {
-        v._rbeInView = e.isIntersecting;
         if (e.isIntersecting) v._rbeSeen = true;
         else if (!v._rbeSeen && !v.paused) { v.pause(); delete v.dataset.rbeStarted; continue; }   // started before we knew it is out of view
         // our own video that wanted to autoplay but was out of view (lightbox strip, long viewer): start it now
         if (e.isIntersecting && v.dataset.rbeWantPlay && !v.dataset.rbeStarted && !away()) { tryPlay(v); continue; }
       }
       if (!e.isIntersecting) {
+        // Playing as it leaves counts as playing even when we missed its 'playing' (an autoplay attribute that
+        // fired before our scan found the player): the page meant it to play, so it comes back on entry.
+        if (!v.paused && !v.dataset.rbeUserPaused) v._rbePlaying = true;
         if (s.videoPauseOffscreen && !v.paused) v.pause();
         // The site usually pauses feed videos itself as they leave. Remember that it was playing, so it can
         // come back when it returns — unless the user paused it on purpose.
@@ -50,24 +80,12 @@
     seen.add(v);
     known.add(v);
     io.observe(v);
-    v.addEventListener('playing', () => { v._rbePlaying = true; });
-    // A pause right after a click/key on that player is the user's: never undo it later. In the light DOM the
-    // click lands on the video or its own container (a few levels up); inside a player's shadow root only that
-    // root counts. Comparing root nodes alone would call any earlier click on the page a pause of this video.
-    const userPausedIt = () => {
-      if (!gesture() || !lastTarget) return false;      // a pause long after any click is the page's, not the user's
-      if (lastTarget === v) return true;
-      const root = v.getRootNode();
-      if (root !== document) return lastTarget.getRootNode?.() === root;
-      let p = v;
-      for (let i = 0; i < 2 && p; i++, p = p.parentElement) {
-        if (!p || p === document.body || p === document.documentElement) break;
-        if (p.contains(lastTarget)) return true;
-      }
-      return false;
-    };
+    // Playing again (the user pressed play, or the page restarted it) ends an earlier user pause: a mark left
+    // behind would stop it from ever coming back after it scrolls away and returns.
+    v.addEventListener('playing', () => { v._rbePlaying = true; if (v.dataset.rbeUserPaused) delete v.dataset.rbeUserPaused; });
+    // A pause right after a click/key on that player is the user's: never undo it later.
     v.addEventListener('pause', () => {
-      if (userPausedIt()) {
+      if (userOn(v)) {
         v._rbePlaying = false;
         v.dataset.rbeUserPaused = '1';
       }
@@ -75,6 +93,18 @@
     v.addEventListener('play', () => {
       const s = RBE.settings;
       if (away() && !gesture()) { v.pause(); return; }
+      // Started while wholly out of view (an autoplay attribute once the source arrives, a player that restarts
+      // after buffering or a re-mount, hls.js once its stream is ready): pause it and let it start when it comes
+      // in. The observer only acts when a video crosses the edge, so without this it would play out of sight.
+      // main-world.js already holds back play() calls like these; this catches starts that never call play().
+      if (s.videoPauseOffscreen && outOfView(v) && !userOn(v) && document.pictureInPictureElement !== v) {
+        v.pause();
+        v.dataset.rbePausedOffscreen = '1';
+        return;
+      }
+      // Reddit's players stay paused behind our lightbox. main-world.js's capture 'play' listener never sees a
+      // start inside a shadow root (media events do not leave it), so an autoplay player there needs this.
+      if (document.documentElement.hasAttribute('data-rbe-lb') && !v.dataset.rbeOwn && !v.closest('.rbe-root')) { v.pause(); return; }
       if (s.videoMode === 'off' && !gesture() && !v.dataset.rbeAllowed) v.pause();
       if (gesture()) v.dataset.rbeAllowed = '1';
     });
@@ -88,7 +118,8 @@
   }
 
   function publish(s) {
-    document.documentElement.dataset.rbeVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0 });
+    // `off`: videoPauseOffscreen, for main-world.js's hold on play() calls made out of view
+    document.documentElement.dataset.rbeVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, off: !!s.videoPauseOffscreen });
   }
   RBE.onSettings(publish);
 
@@ -181,9 +212,10 @@
     v.addEventListener('volumechange', () => { if (!isMineAudio(v) && gesture()) v.dataset.rbeUserAudio = '1'; });
     if (wantsPlay) {
       v.dataset.rbeWantPlay = '1'; // hls.js retries play once the stream is ready
-      // Out of view (strip neighbours, lower in the viewer): don't start; the observer starts it when it shows
-      v.addEventListener('play', () => { if (v._rbeInView === false && !gesture()) v.pause(); });
-      v.addEventListener('playing', () => { if (v._rbeInView === false && !v._rbeSeen) v.pause(); else v.dataset.rbeStarted = '1'; });
+      // Out of view (strip neighbours, lower in the viewer): don't start; the observer starts it when it shows.
+      // outOfView, not just the observer's verdict: the first 'playing' can come before its first report.
+      v.addEventListener('play', () => { if (outOfView(v) && !gesture()) v.pause(); });
+      v.addEventListener('playing', () => { if (outOfView(v) && !v._rbeSeen) v.pause(); else v.dataset.rbeStarted = '1'; });
       tryPlay(v);   // now, inside the click, so the browser lets it play with sound later
     }
     io.observe(v);
@@ -226,7 +258,7 @@
   function attach(v, item) {
     const fallback = () => {
       v._rbeHls?.destroy(); v._rbeHls = null;
-      if (item.fallback && v.getAttribute('src') !== item.fallback) { silentFallback(v); v.src = item.fallback; if (v.dataset.rbeWantPlay) v.play().catch(() => {}); }
+      if (item.fallback && v.getAttribute('src') !== item.fallback) { silentFallback(v); v.src = item.fallback; if (v.dataset.rbeWantPlay && !outOfView(v)) v.play().catch(() => {}); }   // out of view: the observer starts it on entry
     };
     // Prefer hls.js: newer Chrome claims native HLS support but stalls at 0:00 on Reddit's streams
     if (item.hls && globalThis.Hls && Hls.isSupported()) {
@@ -234,7 +266,7 @@
       hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) { console.warn('[RBE] hls error', data.type, data.details); fallback(); } });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (!hls.audioTracks.length && !hls.levels.some(l => /mp4a|ac-3|ec-3|opus|flac|alac/i.test(l.attrs?.CODECS || ''))) silentStream(v);
-        if (v.dataset.rbeWantPlay && v._rbeInView !== false && !v.dataset.rbeStarted) tryPlay(v);
+        if (v.dataset.rbeWantPlay && !outOfView(v) && !v.dataset.rbeStarted) tryPlay(v);
       });
       hls.loadSource(item.hls);
       hls.attachMedia(v);
