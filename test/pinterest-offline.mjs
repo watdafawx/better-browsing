@@ -79,7 +79,15 @@ const fixtureRoute = route => {
     }
     let id = null;
     try { id = JSON.parse(u.searchParams.get('data') || '{}')?.options?.id; } catch {}
-    const data = id ? (PINS[id] || null) : null;
+    const perfPin = pid => ({
+      id: pid, title: 'Perf pin ' + pid, pinner: { username: 'perf' }, description: 'perf',
+      images: {
+        orig: { url: 'https://i.pinimg.com/originals/perf.jpg' },
+        '1200x': { url: 'https://i.pinimg.com/1200x/perf.jpg' },
+        '736x': { url: 'https://i.pinimg.com/736x/perf.jpg' },
+      },
+    });
+    const data = id ? (PINS[id] || (String(id).startsWith('9') ? perfPin(id) : null)) : null;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resource_response: { status: 'success', code: 0, data } }) });
   }
   if (/\.(jpg|jpeg|png|webp)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: png });
@@ -210,17 +218,48 @@ r.resume = await page.evaluate(() => new Promise(res => {
   }, 900);
 }));
 
+// viewer on the big grid: opening must not block, and a step must not rebuild the filmstrip or pull an original
+await page.goto('https://www.pinterest.com/perf');
+await page.waitForTimeout(1200);
+r.viewer = await page.evaluate(async () => {
+  const link = document.querySelector('#pin-p0 a');
+  const t0 = performance.now();
+  link.click();                                  // our capture handler opens the viewer synchronously
+  const openSync = performance.now() - t0;
+  await new Promise(r => setTimeout(r, 500));
+  const first = document.querySelector('.pin-lb-film img');
+  const stage1 = document.querySelector('.pin-lb-stage img');
+  const t1 = performance.now();
+  for (let i = 0; i < 8; i++) {
+    document.querySelector('.pin-lb-nav.next').click();
+    await new Promise(r => setTimeout(r, 120));
+  }
+  const last = document.querySelector('.pin-lb-stage img');
+  return {
+    openSync: Math.round(openSync),
+    stepAvg: Math.round((performance.now() - t1) / 8),
+    filmStable: first === document.querySelector('.pin-lb-film img'),
+    filmCount: document.querySelectorAll('.pin-lb-film img').length,
+    count: document.querySelector('.pin-lb-count')?.textContent || '',
+    usesDisplaySize: /1200x|736x|750x/.test(last?.getAttribute('src') || ''),
+    fullOnZoom: last?.getAttribute('data-full') || '',
+    stageChanged: stage1 !== last,
+  };
+});
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
 // CPU guards: nothing changes on an idle page by itself, and the script's own work stays small while a big
 // grid keeps changing and the user scrolls.
 r.perfApi = await page.evaluate(() => ({ fn: typeof PIN.perf === 'function', snap: PIN.perf() }));
 r.idle = await idleMutations(page, 2000);
 r.cost = await churnCost({ browserType: bt, name: FF ? 'firefox' : 'chromium', launchOpts: FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {}, route: { re: /pinterest\.com|pinimg\.com/, fn: fixtureRoute }, url: 'https://www.pinterest.com/perf', usFile });
-console.log(`PERF ${FF ? 'firefox' : 'chromium'}  idle=${r.idle}  script/CPU  with=${r.cost.with.toFixed(2)}  without=${r.cost.without.toFixed(2)}`);
+console.log(`PERF ${FF ? 'firefox' : 'chromium'}  idle=${r.idle}  script/CPU  with=${r.cost.with.toFixed(2)}  without=${r.cost.without.toFixed(2)}  viewer open=${r.viewer?.openSync}ms step=${r.viewer?.stepAvg}ms film=${r.viewer?.filmCount}`);
 
 const checks = {
   'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
-  'a pin opens our viewer, not Pinterest\'s page (orig image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /originals\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
+  'a pin opens our viewer, not Pinterest\'s page (image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /(1200x|750x|736x|originals)\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
   'the pin\'s comments load in the side panel': /@bob/.test(r.image?.comments || '') && /first comment here/.test(r.image?.comments || '') && /second comment/.test(r.image?.comments || ''),
   'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1',
   'an idea pin is a page sequence': /page 1 \/ 2/.test(r.story1?.count || '') && /p1\.jpg$/.test(r.story1?.src || '') && /page 2 \/ 2/.test(r.story2?.count || '') && /p2\.jpg$/.test(r.story2?.src || ''),
@@ -230,6 +269,9 @@ const checks = {
   'a video that was playing when it left the view comes back when it returns': r.resume?.marked === '1' && r.resume.resumed === true && r.resume.plays >= 2,
   ['idle page, the script changes nothing on its own (' + (FF ? 'firefox' : 'chromium') + ')']: r.idle <= 10,
   'the opt-in perf probe answers with a snapshot': r.perfApi?.fn && r.perfApi.snap?.uptimeMs > 0 && typeof r.perfApi.snap.runs === 'object',
+  'the viewer opens without blocking and steps cheaply (120 pins)': r.viewer?.openSync < 500 && r.viewer.stepAvg < 400 && r.viewer.stageChanged && /pin 9 \/ 120/.test(r.viewer.count || ''),
+  'the filmstrip is built once and reused across steps': r.viewer?.filmStable === true && r.viewer.filmCount === 120,
+  'the stage uses a screen-sized image and keeps the original for zoom': r.viewer?.usesDisplaySize === true && /originals\//.test(r.viewer?.fullOnZoom || ''),
   ['on a page that keeps changing, the script adds little work (' + (FF ? 'firefox' : 'chromium') + ')']: costOk(FF ? 'firefox' : 'chromium', r.cost),
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };

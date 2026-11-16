@@ -6,12 +6,13 @@
   let lb = null;
 
   // Ordered pin ids from the grid, with the card element so we can put the feed back where it was.
+  // Promoted cards are already hidden and marked (.pin-ad), so no text is read here.
   function gridEntries() {
     const out = [], seen = new Set();
     document.querySelectorAll('[data-test-id="pin"]').forEach(el => {
+      if (el.classList.contains('pin-ad')) return;
       const id = el.getAttribute('data-test-pin-id');
       if (!id || seen.has(id)) return;
-      if (PIN.settings.hidePromoted && PIN.isPromoted(el)) return;
       seen.add(id);
       const img = el.querySelector('img');
       out.push({ id, el, thumb: img?.currentSrc || img?.src || '' });
@@ -19,7 +20,13 @@
     return out;
   }
 
-  const imgOf = p => p?.images?.orig?.url || p?.images?.originals?.url || p?.images?.['1200x']?.url || p?.images?.['750x']?.url || p?.images?.['736x']?.url || '';
+  // The viewer shows a screen-sized rendition and only pulls the original when zoomed: `orig` is often several
+  // megabytes, and loading one per step is what made stepping feel slow.
+  const firstUrl = (p, keys) => { for (const k of keys) { const u = p?.images?.[k]?.url; if (u) return u; } return ''; };
+  const DISPLAY = ['1200x', '750x', '736x', '564x', '474x'];
+  const FULL = ['orig', 'originals', '1200x', '750x'];
+  const imgOf = p => firstUrl(p, FULL);
+  const displayOf = p => firstUrl(p, DISPLAY) || imgOf(p);
   const num = n => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n));
 
   // One pin -> what the viewer shows. `pages` is an idea pin (story_pin_data).
@@ -29,16 +36,18 @@
     if (story?.pages?.length) {
       const pages = story.pages.map(pg => {
         const vid = pg.video?.video_list?.V_720P?.url || pg.video?.video_list?.V_HLSV4?.url || '';
-        const img = imgOf(pg.image) || (pg.blocks || []).map(b => imgOf(b.image)).find(Boolean) || '';
-        return { video: vid, image: img };
+        const blocks = (pg.blocks || []).map(b => b.image);
+        const img = displayOf(pg.image) || blocks.map(displayOf).find(Boolean) || '';
+        const full = imgOf(pg.image) || blocks.map(imgOf).find(Boolean) || '';
+        return { video: vid, image: img, full };
       }).filter(x => x.video || x.image);
       if (pages.length) return { type: 'story', pages, pin: p };
     }
     const list = p.videos?.video_list;
     const video = list ? (list.V_720P?.url || Object.values(list).map(v => v?.url).find(u => /\.mp4/i.test(u || '')) || '') : '';
-    if (video) return { type: 'video', src: video, poster: imgOf(p), pin: p };
-    const img = imgOf(p);
-    return img ? { type: 'image', src: img, pin: p } : null;
+    if (video) return { type: 'video', src: video, poster: displayOf(p), pin: p };
+    const img = displayOf(p);
+    return img ? { type: 'image', src: img, full: imgOf(p), pin: p } : null;
   }
 
   class Viewer {
@@ -88,43 +97,54 @@
     }
 
     async show() {
-      const item = await this.item();
-      this.cur = item;
-      const pin = item?.pin;
+      const id = this.entries[this.pi]?.id;
       PIN.destroyVideos(this.stage);
       this.stage.replaceChildren();
-      if (!this.cur) {
+      // First paint is the thumbnail the grid already has, while the pin data (one request) arrives.
+      if (id && !this.items.has(id)) {
+        const thumb = this.entries[this.pi]?.thumb;
+        this.stage.append(thumb
+          ? h('img', { class: 'pin-lb-media pin-lb-thumb', src: thumb, alt: '', decoding: 'async' })
+          : h('div', { class: 'pin-lb-muted' }, 'Loading…'));
+      }
+      const item = await this.item();
+      if (this.entries[this.pi]?.id !== id) return;      // stepped away while it loaded
+      this.cur = item;
+      const pin = item?.pin;
+      this.stage.replaceChildren();
+      if (!item) {
         this.stage.append(h('div', { class: 'pin-lb-err' }, 'Could not load this pin. ',
-          h('a', { href: 'https://www.pinterest.com/pin/' + this.entries[this.pi]?.id + '/', target: '_blank', rel: 'noopener' }, 'Open on Pinterest')));
+          h('a', { href: 'https://www.pinterest.com/pin/' + id + '/', target: '_blank', rel: 'noopener' }, 'Open on Pinterest')));
       } else {
-        const pg = this.cur.type === 'story' ? Math.min(this.pg, this.cur.pages.length - 1) : 0;
+        const pg = item.type === 'story' ? Math.min(this.pg, item.pages.length - 1) : 0;
         this.pg = pg;
-        const media = this.mediaFor(this.cur, pg);
+        const media = this.mediaFor(item, pg);
         if (media) this.stage.append(media);
       }
-      const pages = this.cur?.type === 'story' ? this.cur.pages.length : 0;
+      const pages = item?.type === 'story' ? item.pages.length : 0;
       this.count.textContent = `pin ${this.pi + 1} / ${this.entries.length}` + (pages ? ` · page ${this.pg + 1} / ${pages}` : '');
       this.title.textContent = pin?.title || pin?.grid_title || pin?.closeup_unified_title || '';
-      const id = this.entries[this.pi]?.id || '';
-      this.open.href = 'https://www.pinterest.com/pin/' + id + '/';
+      this.open.href = 'https://www.pinterest.com/pin/' + (id || '') + '/';
       this.renderSide(pin);
       this.renderFilm();
-      this.prev.disabled = this.pi === 0 && !(this.cur?.type === 'story' && this.pg > 0);
+      this.prev.disabled = this.pi === 0 && !(item?.type === 'story' && this.pg > 0);
       this.next.disabled = false;
+      // warm the next pin so a step does not wait for its request
+      if (this.entries[this.pi + 1]) this.item(this.pi + 1).catch(() => {});
     }
 
     mediaFor(item, pg) {
       if (item.type === 'story') {
         const p = item.pages[pg] || {};
-        return p.video ? this.video(p.video, p.image) : this.image(p.image);
+        return p.video ? this.video(p.video, p.image) : this.image(p.image, p.full);
       }
       if (item.type === 'video') return this.video(item.src, item.poster);
-      return this.image(item.src);
+      return this.image(item.src, item.full);
     }
 
-    image(src) {
+    image(src, full) {
       if (!src) return null;
-      const img = h('img', { class: 'pin-lb-media', src, alt: '', draggable: 'false' });
+      const img = h('img', { class: 'pin-lb-media', src, alt: '', draggable: 'false', decoding: 'async', 'data-full': full || '' });
       img.addEventListener('click', e => this.zoom(e, img));
       return img;
     }
@@ -138,6 +158,9 @@
 
     zoom(e, img) {
       if (img.classList.contains('zoomed')) { img.classList.remove('zoomed'); img.style.transformOrigin = ''; return; }
+      // full resolution on demand, not for every step
+      const full = img.getAttribute('data-full');
+      if (full && img.getAttribute('src') !== full) { img.setAttribute('src', full); img.removeAttribute('data-full'); }
       const r = img.getBoundingClientRect();
       img.style.transformOrigin = `${((e.clientX - r.left) / r.width) * 100}% ${((e.clientY - r.top) / r.height) * 100}%`;
       img.classList.add('zoomed');
@@ -182,12 +205,20 @@
     renderFilm() {
       const on = PIN.settings.lightboxFilmstrip !== false && this.entries.length > 1;
       this.film.hidden = !on;
-      if (!on) return this.film.replaceChildren();
-      this.film.replaceChildren(...this.entries.map((e, i) => h('img', {
-        src: e.thumb || '', class: i === this.pi ? 'on' : '', loading: 'lazy', alt: '',
-        onclick: ev => { ev.stopPropagation(); this.pi = i; this.pg = 0; this.show(); }
-      })));
-      this.film.children[this.pi]?.scrollIntoView({ inline: 'center', block: 'nearest' });
+      if (!on) {
+        if (this.filmEls?.length) { this.film.replaceChildren(); this.filmEls = null; }
+        return;
+      }
+      // built once per entry list: rebuilding one <img> per pin on every step was most of the stepping cost
+      if (!this.filmEls || this.filmEls.length !== this.entries.length) {
+        this.filmEls = this.entries.map((e, i) => h('img', {
+          src: e.thumb || '', alt: '', loading: 'lazy',
+          onclick: ev => { ev.stopPropagation(); this.pi = i; this.pg = 0; this.show(); }
+        }));
+        this.film.replaceChildren(...this.filmEls);
+      }
+      for (let i = 0; i < this.filmEls.length; i++) this.filmEls[i].classList.toggle('on', i === this.pi);
+      this.filmEls[this.pi]?.scrollIntoView({ inline: 'center', block: 'nearest' });
     }
 
     copyLink() {
