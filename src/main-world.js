@@ -113,11 +113,26 @@
     closed.add(v);
     viewIO.observe(v);
     v.addEventListener('pause', () => { if (userOn(v)) resume.delete(v); });   // the user's pause stays
-    v.addEventListener('play', () => {                // starts that never call play() (autoplay attribute)
-      if (behindLb(v)) { v.pause(); return; }
-      if (cfg().off && outside(v) && !userOn(v)) { v.pause(); resume.add(v); }
-    });
+    v.addEventListener('play', () => guardStart(v));
   }
+  function guardStart(v) {
+    if (behindLb(v)) { v.pause(); return; }
+    if (cfg().off && outside(v) && !userOn(v)) { v.pause(); resume.add(v); viewIO.observe(v); }
+  }
+  // Native autoplay bypasses play(), and media events never leave a shadow root.
+  // Listen when roots are created so closed players are covered before their first start.
+  const origAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function () {
+    const root = origAttachShadow.apply(this, arguments);
+    root.addEventListener('play', e => {
+      const v = e.target;
+      if (!(v instanceof HTMLVideoElement) || ours(v)) return;
+      played.add(v);
+      if (closedRoot(v)) trackClosed(v);
+      guardStart(v);
+    }, true);
+    return root;
+  };
   const origPause = P.pause;
   P.pause = function () { held.delete(this); return origPause.apply(this, arguments); };   // the page changed its mind
 

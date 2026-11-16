@@ -457,6 +457,15 @@ r.us = { built: true };
     p.show(true); await wait(1000);
     out.bBack = playing(p.v);
     p.done();
+    // Closed-root native autoplay never calls the patched play(), and cannot be found by a DOM scan.
+    p = mk({ mode: 'closed', tag: 'div', html: vid(`autoplay src="${CLIP}"`) });
+    await wait(1500);
+    out.closedAutoplayOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.closedAutoplayIn = playing(p.v);
+    p.show(false); await wait(800);
+    out.closedAutoplayLeft = playing(p.v);
+    p.done();
     // C: autoplay attribute, the source arrives while the player is out of view (re-mount, lazy source)
     p = mk({ html: vid('autoplay') });
     await wait(1200);
@@ -672,6 +681,7 @@ const checks = {
   'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
   'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
+  'userscript: closed-root native autoplay waits offscreen, starts on entry and pauses on exit': (o => o && !o.closedAutoplayOff && o.closedAutoplayIn && !o.closedAutoplayLeft)(r.us.offscreen),
   'userscript: the same for a player in a closed shadow root': (o => o && !o.bOff && o.bIn && !o.bLeft && o.bBack)(r.us.offscreen),
   'userscript: an autoplay player whose source arrives out of view waits until it comes in': (o => o && !o.cOff && o.cIn)(r.us.offscreen),
   'userscript: a player restarting its video after buffering out of view waits until it comes in': (o => o && !o.dOff && o.dIn)(r.us.offscreen),
