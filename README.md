@@ -105,6 +105,7 @@ Requires Node 22 or newer. There are no runtime dependencies; Playwright is only
 npm install          # only needed for the tests
 npm run build        # dist/better-browsing-<site>.user.js + .meta.js per site, and the combined dist/better-browsing.user.js
 npx playwright install chromium firefox   # once, for the tests
+npm run test:all -- --site=reddit  # one site, both browsers, combined bundle + shared checks
 npm test             # offline smoke test of the Reddit script (also test:instagram, test:x, test:pinterest,
                      # test:headers, test:double, and test:all for everything in both browsers)
 ```
@@ -147,7 +148,7 @@ See [CLAUDE.md](CLAUDE.md) for how the pieces fit together and the rules to keep
 1. Bump `version` in the part you changed (`manifest.base.json` and `package.json` for Reddit,
    `instagram/manifest.base.json`, `x/manifest.base.json`, `pinterest/manifest.base.json`), or the bundle's
    `userscriptRevision` in `package.json` for a change to the script alone. Commit.
-2. `npm run release:userscript`. It refuses (and says why) on a dirty tree, a failing `npm run test:all`, or a
+2. `npm run release:userscript` (or `npm run release:userscript -- --site=reddit` for a Reddit-only change; use full suite for shared changes). It refuses (and says why) on a dirty tree, a failing `npm run test:all`, or a
    script whose version is not above the published one while its content changed; then it uploads each changed
    `.user.js` and its `.meta.js` to the fixed `userscript` release that installed scripts check.
 
