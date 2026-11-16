@@ -466,6 +466,22 @@ r.us = { built: true };
     p.show(false); await wait(800);
     out.closedAutoplayLeft = playing(p.v);
     p.done();
+    // A native player can start before asynchronous settings arrive, with no later edge crossing.
+    {
+      const config = document.documentElement.getAttribute('data-rbe-video');
+      document.documentElement.removeAttribute('data-rbe-video');
+      await wait(50);
+      p = mk({ mode: 'closed', tag: 'div', html: vid(`autoplay src="${CLIP}"`) });
+      await wait(1000);
+      out.beforeSettings = playing(p.v);
+      document.documentElement.setAttribute('data-rbe-video', config);
+      await wait(1000);
+      out.afterSettings = playing(p.v);
+      out.closedDiagnostic = window.__rbeVideoState().videos.some(v => v.closed && v.outside && v.paused);
+      p.show(true); await wait(1000);
+      out.settingsResume = playing(p.v);
+      p.done();
+    }
     // C: autoplay attribute, the source arrives while the player is out of view (re-mount, lazy source)
     p = mk({ html: vid('autoplay') });
     await wait(1200);
@@ -682,6 +698,7 @@ const checks = {
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
   'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
   'userscript: closed-root native autoplay waits offscreen, starts on entry and pauses on exit': (o => o && !o.closedAutoplayOff && o.closedAutoplayIn && !o.closedAutoplayLeft)(r.us.offscreen),
+  'userscript: late settings stop closed-root playback and allow resume on entry': (o => o && o.beforeSettings && !o.afterSettings && o.settingsResume && o.closedDiagnostic)(r.us.offscreen),
   'userscript: the same for a player in a closed shadow root': (o => o && !o.bOff && o.bIn && !o.bLeft && o.bBack)(r.us.offscreen),
   'userscript: an autoplay player whose source arrives out of view waits until it comes in': (o => o && !o.cOff && o.cIn)(r.us.offscreen),
   'userscript: a player restarting its video after buffering out of view waits until it comes in': (o => o && !o.dOff && o.dIn)(r.us.offscreen),
