@@ -22,12 +22,38 @@
   });
 
   // One MutationObserver for everything; each subscriber runs at most once per `delay` ms.
+  // With `localStorage['pin-perf'] = '1'` the runs and time per subscriber are counted (PIN.perf()).
+  let PERF = false;
+  try { PERF = localStorage.getItem('pin-perf') === '1'; } catch {}
+  const perfData = { runs: {}, ms: {}, longTasks: 0, since: Date.now() };
+  if (PERF && typeof PerformanceObserver === 'function') {
+    try { new PerformanceObserver(list => { perfData.longTasks += list.getEntries().length; }).observe({ entryTypes: ['longtask'] }); } catch {}
+  }
+  PIN.count = (name, ms) => {
+    if (!PERF) return;
+    perfData.runs[name] = (perfData.runs[name] || 0) + 1;
+    perfData.ms[name] = +((perfData.ms[name] || 0) + ms).toFixed(1);
+  };
+  // PIN.perf() -> a snapshot; empty counts unless localStorage['pin-perf'] = '1' at load time.
+  PIN.perf = () => ({
+    uptimeMs: Date.now() - perfData.since,
+    nodes: document.querySelectorAll('*').length,
+    longTasks: perfData.longTasks,
+    runs: { ...perfData.runs },
+    ms: { ...perfData.ms },
+  });
+
   const subs = [];
-  PIN.onDomChange = (fn, delay = 250) => subs.push({ fn, delay, t: 0 });
+  PIN.onDomChange = (fn, delay = 250, name = 'dom') => subs.push({ fn, delay, name, t: 0 });
   new MutationObserver(() => {
+    if (document.hidden) return;            // nothing on screen: don't scan in the background
     for (const s of subs) {
       if (s.t) continue;
-      s.t = setTimeout(() => { s.t = 0; try { s.fn(); } catch (e) { console.error('[PIN]', e); } }, s.delay);
+      s.t = setTimeout(() => {
+        s.t = 0;
+        const t0 = performance.now();
+        try { s.fn(); } catch (e) { console.error('[PIN]', e); } finally { PIN.count(s.name, performance.now() - t0); }
+      }, s.delay);
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
 

@@ -96,6 +96,11 @@ Refine it with a real ad card.
 
 ## Open questions
 
+- **Performance**: if the page feels slow (reported on Zen/Firefox), set `localStorage['pin-perf'] = '1'`, reload,
+  scroll for ~15s, then run `PIN.perf()`. It reports, per subscriber, how many times it ran and the total ms
+  (`video-scan`, `video-interval`, `promoted`, `entry`) plus `longTasks`. `idle` and `churn` guards live in
+  `test/pinterest-offline.mjs` (`test/lib/perf.mjs`), but they measure the page world; Violentmonkey's content
+  realm adds Xray overhead the harness cannot reproduce, which is why the probe exists.
 - Comments: only the first page (10) is fetched; the resource's envelope also carries a `bookmark` for paging if
   we ever want more than that in the panel.
 - The promoted-pin marker is a label match in the card ("Promoted", "Sponsored", and a few languages). Refine it

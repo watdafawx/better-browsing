@@ -83,12 +83,24 @@
     });
   }
 
-  // Pinterest renders its players in the light DOM (`video[data-test-id="web-video-player"]`), but keep the
-  // shadow-root walk: media players have moved in and out of them before.
-  function scan(root, depth = 0) {
+  // Pinterest renders its players in the light DOM (`video[data-test-id="web-video-player"]`). A whole-document
+  // attribute-substring query per mutation was the expensive part in Firefox's content realm, so scan <video>
+  // elements only, and look for new shadow roots rarely (they have not appeared on Pinterest).
+  const roots = new Set([document]);
+  let lastDeep = 0;
+  function scan() {
+    for (const r of roots) r.querySelectorAll('video').forEach(guard);
+    if (Date.now() - lastDeep < 15000) return;
+    lastDeep = Date.now();
+    for (const r of [...roots]) discover(r, 0);
+  }
+  function discover(root, depth) {
     if (!root || depth > 3) return;
-    root.querySelectorAll('video').forEach(guard);
-    root.querySelectorAll('[data-test-id*="player"], [data-test-id*="video"]').forEach(h => h.shadowRoot && scan(h.shadowRoot, depth + 1));
+    for (const el of root.querySelectorAll('*')) {
+      if (!el.shadowRoot || roots.has(el.shadowRoot)) continue;
+      roots.add(el.shadowRoot);
+      discover(el.shadowRoot, depth + 1);
+    }
   }
 
   function publish(s) {
@@ -97,8 +109,11 @@
   }
   PIN.onSettings(publish);
 
-  PIN.onDomChange(() => scan(document), 300);
-  setInterval(() => { if (!document.hidden) scan(document); }, 3000);
+  PIN.onDomChange(() => { const t0 = performance.now(); scan(); PIN.count('video-scan', performance.now() - t0); }, 300, 'video-scan');
+  setInterval(() => {
+    if (document.hidden) return;
+    const t0 = performance.now(); scan(); PIN.count('video-interval', performance.now() - t0);
+  }, 5000);
 
   // play() that only falls back to muted when the browser really blocked audible autoplay.
   PIN.tryPlay = function (v) {
