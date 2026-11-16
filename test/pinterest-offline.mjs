@@ -2,6 +2,7 @@
 // fixtures, so it never touches the site. Run: node test/pinterest-offline.mjs  (BROWSER=firefox for Firefox)
 import { chromium, firefox } from 'playwright';
 import path from 'path'; import fs from 'fs';
+import { idleMutations, churnCost, costOk } from './lib/perf.mjs';
 
 const usFile = path.resolve('dist/better-browsing.user.js');
 if (!fs.existsSync(usFile)) { console.log('FAIL userscript built: ' + usFile + ' missing (npm run build)'); process.exit(1); }
@@ -58,7 +59,16 @@ ${cards.map(({ id, label }, i) => `<div data-test-id="pin" id="pin-${id}" data-t
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
-await ctx.route(/pinterest\.com|pinimg\.com/, route => {
+// a big, busy feed for the CPU guards: 120 cards that keep changing (Pinterest's real grid is far bigger)
+const perfFeed = `<!doctype html><html><head><title>Pinterest perf fixture</title></head><body>
+<header style="height:64px"><div data-test-id="header">header</div></header>
+<div id="grid">${Array.from({ length: 120 }, (_, i) => `<div data-test-id="pin" id="pin-p${i}" data-test-pin-id="9${String(i).padStart(5, '0')}" data-test-pin-slot-index="${i}">
+  <div data-test-id="pinWrapper"><a href="/pin/9${String(i).padStart(5, '0')}/"><div data-test-id="pincard-image-with-link"><img src="https://i.pinimg.com/236x/p/${i}.jpg" alt=""></div></a></div>
+  <button data-test-id="more-actions-button" aria-label="More options">…</button><span>Pin ${i}</span>
+</div>`).join('\n')}</div>
+<div style="height:4000px"></div></body></html>`;
+
+const fixtureRoute = route => {
   const u = new URL(route.request().url());
   if (u.pathname.startsWith('/resource/')) {
     if (/UnifiedCommentsResource/.test(u.pathname)) {
@@ -74,8 +84,10 @@ await ctx.route(/pinterest\.com|pinimg\.com/, route => {
   }
   if (/\.(jpg|jpeg|png|webp)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: png });
   if (/\.(mp4|m3u8)$/i.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'video/mp4', body: '' });
+  if (u.pathname === '/perf') return route.fulfill({ status: 200, contentType: 'text/html', body: perfFeed });
   return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
-});
+};
+await ctx.route(/pinterest\.com|pinimg\.com/, fixtureRoute);
 await ctx.addInitScript({ path: usFile });
 
 const logs = [];
@@ -198,6 +210,13 @@ r.resume = await page.evaluate(() => new Promise(res => {
   }, 900);
 }));
 
+// CPU guards: nothing changes on an idle page by itself, and the script's own work stays small while a big
+// grid keeps changing and the user scrolls.
+r.perfApi = await page.evaluate(() => ({ fn: typeof PIN.perf === 'function', snap: PIN.perf() }));
+r.idle = await idleMutations(page, 2000);
+r.cost = await churnCost({ browserType: bt, name: FF ? 'firefox' : 'chromium', launchOpts: FF ? { firefoxUserPrefs: { 'media.autoplay.default': 0 } } : {}, route: { re: /pinterest\.com|pinimg\.com/, fn: fixtureRoute }, url: 'https://www.pinterest.com/perf', usFile });
+console.log(`PERF ${FF ? 'firefox' : 'chromium'}  idle=${r.idle}  script/CPU  with=${r.cost.with.toFixed(2)}  without=${r.cost.without.toFixed(2)}`);
+
 const checks = {
   'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40}' && r.boot.native && r.boot.snap,
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
@@ -209,6 +228,9 @@ const checks = {
   'Esc closes and unlocks the page': r.closed?.gone && r.closed.unlocked && !r.closed.attr,
   'the promoted switch brings them back': r.unhidden?.display !== 'none',
   'a video that was playing when it left the view comes back when it returns': r.resume?.marked === '1' && r.resume.resumed === true && r.resume.plays >= 2,
+  ['idle page, the script changes nothing on its own (' + (FF ? 'firefox' : 'chromium') + ')']: r.idle <= 10,
+  'the opt-in perf probe answers with a snapshot': r.perfApi?.fn && r.perfApi.snap?.uptimeMs > 0 && typeof r.perfApi.snap.runs === 'object',
+  ['on a page that keeps changing, the script adds little work (' + (FF ? 'firefox' : 'chromium') + ')']: costOk(FF ? 'firefox' : 'chromium', r.cost),
   'no page errors or dialogs': !logs.some(l => /pageerror|DIALOG/.test(l)),
 };
 

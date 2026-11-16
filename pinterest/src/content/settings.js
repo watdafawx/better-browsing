@@ -30,12 +30,11 @@
   function mountNavEntry() {
     const old = document.querySelector('.pin-nav-entry');
     if (!PIN.settings.sidebarEntry) { old?.remove(); return; }
+    // already in the rail: one cheap check, nothing else to do (the rail re-renders often)
+    if (old?.isConnected && old.parentElement?.querySelector('[data-test-id="vertical-nav-icon"]')) return;
+    if (old) old.remove();                 // re-rendered nav: drop the stale one and add a fresh clone
     const col = navColumn();
     if (!col) return;                       // page without the nav (or it has not rendered yet)
-    if (old) {
-      if (col.contains(old)) return;        // already in place
-      old.remove();                         // re-rendered nav: drop the stale one and add a fresh clone
-    }
     const src = col.querySelector('[data-test-id="vertical-nav-icon"]');
     if (!src) return;
     const node = src.cloneNode(true);
@@ -81,7 +80,8 @@
 
   function apply() { mountNavEntry(); mountButton(); }
   PIN.onSettings(apply);
-  PIN.onDomChange(apply, 600);
+  PIN.onDomChange(apply, 600, 'entry');
+  PIN.ready.then(apply);          // the rail is not in the document at document-start
 
   addEventListener('keydown', e => {
     if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyW') {
