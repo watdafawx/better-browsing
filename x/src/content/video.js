@@ -20,11 +20,13 @@
   let lastGesture = 0, lastTarget = null;
   const onGesture = e => { lastGesture = Date.now(); lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target; };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => addEventListener(t, onGesture, true));
-  // Which side started a play/pause. The browser's own controls, and the media keys, never call play() or
-  // pause(), so a play/pause event that no page call came before is the user's, in both browsers (Firefox
-  // shows the page no click on a video's own controls at all). main-world.js marks the page's calls; the
-  // content script's own (start() and quiet()) are marked by them too, and told apart here.
+  // Which side paused. The browser's own controls, and the media keys, never call pause(), and send the
+  // page no click either in Chrome (Firefox reports the focus): a pause that no page pause() came before
+  // is the user's. main-world.js marks the page's calls (X's pauses always go through pause()).
   const pageCall = (v, k) => performance.now() - (v[k] || 0) < 500;
+  // The bar's own play: no play() came before it, and using the bar focuses the video (Chrome fires no
+  // other event at all, Firefox a focus event). A video the browser restarts by itself is not focused.
+  const barPlay = v => !pageCall(v, '_xbbPagePlay') && document.activeElement === v;
   const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = v.closest(PLAYER); return !!p && p.contains(t); };
   const userOn = v => Date.now() - lastGesture <= 1500 && on(v, lastTarget);
 
@@ -127,8 +129,7 @@
     const v = e.target, s = XBB.settings;
     if (!managed(v)) return;
     if (away() && !userOn(v)) { quiet(v); return; }   // X restarting something while you are away
-    // Yours if you clicked the player, or if the browser's own controls started it (no play() call).
-    if (userOn(v) || !pageCall(v, '_xbbPagePlay')) {
+    if (userOn(v) || barPlay(v)) {         // you started it: it wins, and everything else yields
       userPaused.delete(v);
       chosen = v;
       setPick(v);
@@ -136,6 +137,7 @@
     } else if (s.videoOneAtATime && s.videoMode !== 'default' && v !== pick) {
       // X started one on its own. It may well be the one that should play (a scroll just moved it to the
       // middle): pick again with the current positions first; stopping it only if it still is not the pick.
+      // A play() the page never made is the browser's (its own controls, or its own restart): not yours.
       evaluate();
       if (v !== pick && !v.paused) quiet(v);
     }
@@ -143,7 +145,8 @@
   document.addEventListener('pause', e => {
     const v = e.target;
     if (!managed(v) || v.ended || performance.now() - (v._xbbQuiet || 0) < 400) return;
-    // Paused by you: a click on the player, or the browser's own controls (which call no pause()).
+    // Paused by you if you clicked the player, or if the browser's own controls did it: those, and the media
+    // keys, never call pause(), so no page call came before this pause. X's own pauses always do.
     if (userOn(v) || !pageCall(v, '_xbbPagePause')) { userPaused.add(v); if (chosen === v) chosen = null; }
   }, true);
   document.addEventListener('ended', e => {

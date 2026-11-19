@@ -365,13 +365,16 @@ if (!FF) {
   await page.waitForTimeout(900);
   const stopped = playing(await vids(page));
   check('browser controls: a pause from the video\'s own bar sticks', stopped === '', stopped);
-  await page.evaluate(id => window.__orig.play.call(document.getElementById(id)), first);    // the bar's play
+  // the bar's play: the bar focuses the video, then the browser starts it without calling play()
+  const other = ['v1', 'v2', 'v3'].find(id => id !== first);
+  await page.evaluate(id => document.getElementById(id).focus(), other);
+  await page.evaluate(id => window.__orig.play.call(document.getElementById(id)), other);
   await page.waitForTimeout(700);
   const resumed = playing(await vids(page));
-  check('browser controls: a play from the bar plays that video, alone', resumed === first, resumed);
-  const muted = await page.evaluate(id => { const v = document.getElementById(id); window.__orig.muted.set.call(v, true); return v.muted; }, first);   // the bar's mute
+  check('browser controls: a play from the bar plays that video, alone', resumed === other, { other, resumed });
+  const muted = await page.evaluate(id => { const v = document.getElementById(id); window.__orig.muted.set.call(v, true); return v.muted; }, other);   // the bar's mute
   await page.waitForTimeout(1200);   // the safety net that unmutes X's own mutes runs every 600 ms
-  const afterMute = (await vids(page)).find(v => v.id === first);
+  const afterMute = (await vids(page)).find(v => v.id === other);
   check('browser controls: a mute from the bar is kept', muted === true && afterMute.muted === true, { muted, afterMute });
   await ctx.close();
 }

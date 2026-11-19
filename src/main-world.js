@@ -8,8 +8,16 @@
   const origPlay = P.play;
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
-  const setMuted = (el, v) => mutedDesc.set.call(el, v);
-  const setVol = (el, v) => volDesc.set.call(el, v);
+  // Remember the audio state our own writes leave, so the volumechange they cause is never taken for the
+  // user's (a video we had to mute before the first click stayed muted for good that way).
+  const mine = new WeakMap();
+  const note = el => mine.set(el, [mutedDesc.get.call(el), volDesc.get.call(el)]);
+  const isMine = el => { const m = mine.get(el); return !!m && m[0] === el.muted && Math.abs(m[1] - el.volume) < 0.01; };
+  const setMuted = (el, v) => { mutedDesc.set.call(el, v); note(el); };
+  const setVol = (el, v) => { volDesc.set.call(el, v); note(el); };
+  // May this video make sound now? Unmuting a playing video that may not makes the browser pause it, and
+  // Reddit then restarts it with sound still refused: play, stop, play silent.
+  const canSound = el => { try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {} return activated(); };
 
   let lastGesture = 0, lastTarget = null;
   const gesture = () => Date.now() - lastGesture < 1200 || !!(navigator.userActivation && navigator.userActivation.isActive && Date.now() - lastGesture < 5000);
@@ -58,6 +66,8 @@
     if (c.mode === 'muted') setMuted(el, true);
     else if (c.mode === 'volume' || c.mode === 'off') {
       setVol(el, Math.max(0, Math.min(1, (c.volume || 0) / 100)));
+      // a playing muted video stays muted until it may make sound: unmuting it now would pause it
+      if (c.volume && el.muted && !el.paused && !canSound(el)) { waitingForGesture.add(el); return; }
       setMuted(el, !c.volume);
     }
   }
@@ -162,7 +172,7 @@
       if (err && err.name === 'NotAllowedError' && !el.muted) {
         setMuted(el, true);                    // browser refuses sound before first click → start muted
         waitingForGesture.add(el);
-        return origPlay.call(el);
+        return origPlay.call(el).catch(e => { if (e?.name !== 'AbortError') throw e; });
       }
       throw err;
     });
@@ -210,7 +220,7 @@
   // player that differs from our level is the user's, and sticks.
   document.addEventListener('volumechange', e => {
     const v = e.target, c = cfg();
-    if (!active(v) || v.dataset.rbeUserAudio || !userOn(v)) return;
+    if (!active(v) || v.dataset.rbeUserAudio || isMine(v) || !userOn(v)) return;
     const want = c.mode === 'muted' ? null : Math.max(0, Math.min(1, (c.volume || 0) / 100));
     const ours = want === null ? v.muted : v.muted === (want === 0) && Math.abs(v.volume - want) < 0.01;
     if (!ours) { v.dataset.rbeUserAudio = '1'; waitingForGesture.delete(v); }
@@ -230,7 +240,7 @@
       if (v.paused) continue;
       // Settings and layout can change after the start event and the last observer report.
       if (v instanceof HTMLVideoElement && !ours(v)) guardStart(v, false);
-      if (v.paused || !audio || v.dataset.rbeUserAudio || !active(v)) continue;
+      if (v.paused || !audio || v.dataset.rbeUserAudio || !active(v) || !canSound(v)) continue;
       if (!v.muted && Math.abs(v.volume - want) < 0.01) continue;
       waitingForGesture.delete(v);
       setVol(v, want);

@@ -74,6 +74,8 @@
     if (cfg.mode === 'muted') setMuted(el, true);
     else if (cfg.mode === 'volume' || cfg.mode === 'off') {
       setVol(el, level());
+      // a playing muted video stays muted until it may make sound: unmuting it now would pause it
+      if (level() && el.muted && !el.paused && !canSound(el)) { waiting.add(el); return; }
       setMuted(el, !level());
     }
   }
@@ -88,7 +90,7 @@
   P.play = function () {
     if (!active(this)) return origPlay.apply(this, arguments);
     if (gated(this) && !mayPlay(this)) return Promise.resolve();   // swallow X's autoplay
-    this._xbbPagePlay = performance.now();   // a page call: X's, or ours; never the browser's own controls
+    this._xbbPagePlay = performance.now();   // a page call: X's, or ours; not the browser's own controls
     applyAudio(this);
     const el = this;
     return origPlay.call(this).catch(err => {
@@ -141,6 +143,9 @@
   // React sets `muted` as a property on mount, before play(); re-apply our level when playback starts.
   // Before the page has had a click, unmuting would make the browser pause the video: wait for the click.
   const activated = () => !!navigator.userActivation?.hasBeenActive;
+  // May this video make sound now? Unmuting a playing video that may not makes the browser pause it, and
+  // X then restarts it with sound still refused: play, stop, play silent.
+  const canSound = el => { try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {} return activated(); };
   document.addEventListener('playing', e => {
     const v = e.target;
     if (!active(v)) return;
