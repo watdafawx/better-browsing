@@ -77,10 +77,19 @@
   // passes here, closed shadow roots included, so a start while the video is wholly outside the viewport is
   // held until it comes in. Holding the call instead of pausing after it also keeps a player that restarts
   // its video on every pause from fighting us in a loop.
+  const rectOf = v => {
+    // A just-inserted player often has no size yet: judge it by the nearest ancestor that has one (through shadow hosts).
+    for (let n = v, i = 0; n && i < 12; i++) {
+      const r = n.getBoundingClientRect();
+      if (r.width && r.height) return r;
+      n = n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+    }
+    return null;
+  };
   const outside = el => {
     if (!el.isConnected) return false;
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) return false;          // not laid out yet: unknown, leave it to the page
+    const r = rectOf(el);
+    if (!r) return false;          // nothing laid out at all: unknown, leave it to the page
     return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth;
   };
   const held = new Set();          // page videos whose play() waits for them to come into view
@@ -104,11 +113,26 @@
     closed.add(v);
     viewIO.observe(v);
     v.addEventListener('pause', () => { if (userOn(v)) resume.delete(v); });   // the user's pause stays
-    v.addEventListener('play', () => {                // starts that never call play() (autoplay attribute)
-      if (behindLb(v)) { v.pause(); return; }
-      if (cfg().off && outside(v) && !userOn(v)) { v.pause(); resume.add(v); }
-    });
+    v.addEventListener('play', () => guardStart(v));
   }
+  function guardStart(v, allowUser = true) {
+    if (behindLb(v)) { v.pause(); return; }
+    if (cfg().off && outside(v) && (!allowUser || !userOn(v)) && document.pictureInPictureElement !== v) { v.pause(); resume.add(v); viewIO.observe(v); }
+  }
+  // Native autoplay bypasses play(), and media events never leave a shadow root.
+  // Listen when roots are created so closed players are covered before their first start.
+  const origAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function () {
+    const root = origAttachShadow.apply(this, arguments);
+    root.addEventListener('play', e => {
+      const v = e.target;
+      if (!(v instanceof HTMLVideoElement) || ours(v)) return;
+      played.add(v);
+      if (closedRoot(v)) trackClosed(v);
+      guardStart(v);
+    }, true);
+    return root;
+  };
   const origPause = P.pause;
   P.pause = function () { held.delete(this); return origPause.apply(this, arguments); };   // the page changed its mind
 
@@ -199,17 +223,28 @@
   document.addEventListener('play', e => { if (active(e.target)) played.add(e.target); }, true);
   setInterval(() => {
     const c = cfg();
-    if (c.mode !== 'volume' || !c.volume || document.hidden || !activated()) return;
+    const audio = c.mode === 'volume' && c.volume && !document.hidden && activated();
     const want = wantVol(c);
     for (const v of played) {
       if (!v.isConnected) { played.delete(v); continue; }
-      if (v.paused || v.dataset.rbeUserAudio || !active(v)) continue;
+      if (v.paused) continue;
+      // Settings and layout can change after the start event and the last observer report.
+      if (v instanceof HTMLVideoElement && !ours(v)) guardStart(v, false);
+      if (v.paused || !audio || v.dataset.rbeUserAudio || !active(v)) continue;
       if (!v.muted && Math.abs(v.volume - want) < 0.01) continue;
       waitingForGesture.delete(v);
       setVol(v, want);
       setMuted(v, false);
     }
   }, 600);
+
+  // Read-only console diagnostics include closed-root players that DOM queries cannot reach.
+  window.__rbeVideoState = () => ({ viewport: innerHeight, settings: cfg(), videos: [...played].filter(v => v.isConnected).map(v => {
+    const r = v.getBoundingClientRect();
+    return { paused: v.paused, muted: v.muted, volume: v.volume, ready: v.readyState,
+      closed: closedRoot(v), top: Math.round(r.top), bottom: Math.round(r.bottom),
+      width: Math.round(r.width), height: Math.round(r.height), outside: outside(v) };
+  }) });
 
   // Native autoplay attribute bypasses play(); neuter it when autoplay is off.
   const autoDesc = Object.getOwnPropertyDescriptor(P, 'autoplay');

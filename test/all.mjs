@@ -1,9 +1,15 @@
 // Runs every test: builds every bundle, checks their headers, runs each site's test against that site's own
 // script in Chromium and again in Firefox, the double-install test in both, and the X test once more against the
 // combined script. The Reddit and Instagram tests run their first part in Chromium either way and only their
-// second part in BROWSER. Run: npm run test:all
+// second part in BROWSER. Run: npm run test:all [-- --site=reddit|instagram|x|pinterest]
 import { spawnSync } from 'child_process';
 
+const options = process.argv.slice(2);
+const site = options[0]?.match(/^--site=(reddit|instagram|x|pinterest)$/)?.[1];
+if (options.length && (options.length !== 1 || !site)) {
+  console.error('Usage: npm run test:all -- --site=reddit|instagram|x|pinterest');
+  process.exit(1);
+}
 const node = (...args) => ['node', args];
 const runs = [
   ['build', ...node('build.js')],
@@ -21,8 +27,14 @@ const runs = [
   ['Pinterest, Firefox', ...node('test/pinterest-offline.mjs'), { BROWSER: 'firefox' }],
 ];
 
+// Shared checks always run. Site changes also exercise that site inside the combined bundle.
+const selected = site ? runs.filter(([name]) => /^(build|headers|double install)/.test(name) || name.split(',')[0].toLowerCase() === site) : runs;
+if (site && site !== 'x') {
+  const script = site === 'reddit' ? 'test/offline.mjs' : `test/${site}-offline.mjs`;
+  selected.push([`${site}, Chromium, combined script`, ...node(script), { US_FILE: 'dist/better-browsing.user.js' }]);
+}
 let bad = 0;
-for (const [name, cmd, args, env = {}] of runs) {
+for (const [name, cmd, args, env = {}] of selected) {
   const t0 = Date.now();
   const res = spawnSync(cmd, args, { encoding: 'utf8', env: { ...process.env, ...env }, maxBuffer: 64 * 1024 * 1024 });
   const out = (res.stdout || '') + (res.stderr || '');

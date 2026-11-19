@@ -3,7 +3,7 @@
 // non-zero exit, unless all of this holds:
 //   1. the working tree is clean (what is published is a commit),
 //   2. the repo is watdafawx/better-browsing (the URLs in the headers point there),
-//   3. npm run test:all passes (it also builds dist/),
+//   3. tests pass (all by default; --site=<site> scopes to that site plus shared checks),
 //   4. no script's @version is below the published one, and a script whose @version equals the published one
 //      is byte-identical to it (else installed copies would never see the change: bump that part's version or
 //      the bundle's userscriptRevision). Equal and identical scripts are left alone.
@@ -33,8 +33,9 @@ if (!clean()) fail('the working tree has uncommitted changes (git status). Commi
 const repo = out('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
 if (repo !== REPO) fail(`this checkout's GitHub repo is ${repo}, but the scripts' update URLs point at ${REPO}. Rename the repo first.`);
 
-console.log('running npm run test:all ...');
-const t = run(process.execPath, ['test/all.mjs'], { stdio: 'inherit' });
+const testArgs = process.argv.slice(2);
+console.log('running npm run test:all' + (testArgs.length ? ' -- ' + testArgs.join(' ') : '') + ' ...');
+const t = run(process.execPath, ['test/all.mjs', ...testArgs], { stdio: 'inherit' });
 if (t.status !== 0) fail('npm run test:all failed.');
 if (!clean()) fail('the tests changed tracked files (git status).');
 

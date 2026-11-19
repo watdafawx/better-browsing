@@ -10,20 +10,20 @@
   // Batch-fetch post data for t3_ ids.
   // Reddit sometimes answers /api/info.json with 403, so fall back to /by_id/, then to
   // one /comments/<id>.json per post (the endpoint the comment viewer uses).
-  const broken = { info: false, byId: false };
+  const broken = { info: 0, byId: 0 };
   const store = j => (j?.data?.children || []).forEach(c => c?.data?.name && cache.set(c.data.name, c.data));
   async function fetchSingle(id) {
     const j = await RBE.getJSON(`/comments/${id.replace(/^t3_/, '')}.json?raw_json=1&limit=1&depth=1`);
     store(j?.[0]);
   }
   async function fetchChunk(chunk) {
-    if (!broken.info) {
+    if (Date.now() >= broken.info) {
       try { return store(await RBE.getJSON('/api/info.json?raw_json=1&sr_detail=1&id=' + chunk.join(','))); }
-      catch (e) { broken.info = true; console.warn('[RBE] info.json failed, falling back', e); }
+      catch (e) { broken.info = Date.now() + 60000; console.warn('[RBE] info.json failed, falling back', e); }
     }
-    if (!broken.byId) {
+    if (Date.now() >= broken.byId) {
       try { return store(await RBE.getJSON('/by_id/' + chunk.join(',') + '.json?raw_json=1&limit=100')); }
-      catch (e) { broken.byId = true; console.warn('[RBE] by_id failed, falling back', e); }
+      catch (e) { broken.byId = Date.now() + 60000; console.warn('[RBE] by_id failed, falling back', e); }
     }
     // a few at a time so we don't trip Reddit's rate limit
     for (let i = 0; i < chunk.length; i += 3) {
@@ -33,9 +33,9 @@
   RBE.getPosts = async function (ids) {
     ids = [...new Set(ids.filter(Boolean))];
     // Both batch endpoints refused: each post costs its own request, so the lightbox asks for a smaller window
-    if (broken.info && broken.byId) RBE.perPostFetch = true;
+    RBE.perPostFetch = Date.now() < broken.info && Date.now() < broken.byId;
     const need = ids.filter(id => !cache.has(id) && !pending.has(id));
-    if (broken.info && broken.byId) {
+    if (RBE.perPostFetch) {
       // per-post mode: each id gets its own promise so the post being opened isn't stuck behind prefetches
       need.forEach(id => pending.set(id, fetchSingle(id).catch(e => console.warn('[RBE] post fetch failed', id, e)).finally(() => pending.delete(id))));
       need.length = 0;

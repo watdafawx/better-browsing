@@ -274,7 +274,7 @@ r.us = { built: true };
   r.us.browser = FF ? 'firefox' : 'chromium';
   const b2 = await bt.launch(launchOpts);
   const c2 = await b2.newContext({ viewport: { width: 1400, height: 900 } });
-  await c2.route(/reddit\.com|redd\.it|redditstatic/, fixtures);
+  await c2.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
   await c2.addInitScript({ path: usFile });
   const p2 = await c2.newPage();
   const usLogs = [];
@@ -411,8 +411,34 @@ r.us = { built: true };
     host.style.top = '0px';
     await new Promise(r => setTimeout(r, 800));
     const on = f.getAttribute('src') || '';
+    document.documentElement.setAttribute('data-rbe-lb', '');
+    await new Promise(r => setTimeout(r, 300));
+    const behind = f.getAttribute('src');
+    document.documentElement.removeAttribute('data-rbe-lb');
+    await new Promise(r => setTimeout(r, 300));
+    host.style.top = (innerHeight + 10) + 'px';
+    await new Promise(r => setTimeout(r, 500));
+    const below = f.getAttribute('src');
     host.remove();
-    return { off, on };
+    return { off, on, below, behind };
+  });
+  r.us.feedFrame = await p2.evaluate(async () => {
+    const wait = () => new Promise(r => setTimeout(r, 700));
+    const f = document.createElement('iframe'), src = 'https://www.redgifs.com/ifr/fixture';
+    f.style.cssText = 'position:fixed;left:0;top:5000px;width:300px;height:200px';
+    f.src = src; document.body.append(f); await wait();
+    const off = f.getAttribute('src');
+    f.src = src; await wait(); const restarted = f.getAttribute('src');
+    f.style.top = '100px'; await wait(); const on = f.getAttribute('src');
+    document.documentElement.setAttribute('data-rbe-lb', ''); await wait(); const behind = f.getAttribute('src');
+    document.documentElement.removeAttribute('data-rbe-lb'); await wait(); const restored = f.getAttribute('src');
+    f.style.top = (innerHeight + 10) + 'px'; await wait(); const below = f.getAttribute('src');
+    RBE.settings.videoPauseOffscreen = false;
+    await RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, videoPauseOffscreen: false } }));
+    await wait(); const disabled = f.getAttribute('src');
+    await RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, videoPauseOffscreen: true } }));
+    await wait(); const enabled = f.getAttribute('src');
+    f.remove(); return { off, restarted, on, behind, restored, below, disabled, enabled };
   });
   // Videos out of view: nothing plays while wholly outside the viewport, and what the page wanted playing
   // starts when it comes in. Real clips, players in open and closed shadow roots, the ways Reddit's players
@@ -457,6 +483,33 @@ r.us = { built: true };
     p.show(true); await wait(1000);
     out.bBack = playing(p.v);
     p.done();
+    // Closed-root native autoplay never calls the patched play(), and cannot be found by a DOM scan.
+    p = mk({ mode: 'closed', tag: 'div', html: vid(`autoplay src="${CLIP}"`) });
+    await wait(1500);
+    out.closedAutoplayOff = playing(p.v);
+    p.show(true); await wait(1000);
+    out.closedAutoplayIn = playing(p.v);
+    p.show(false); await wait(800);
+    out.closedAutoplayLeft = playing(p.v);
+    p.done();
+    // A player can start before asynchronous settings arrive, with no later edge crossing.
+    {
+      const config = document.documentElement.getAttribute('data-rbe-video');
+      document.documentElement.removeAttribute('data-rbe-video');
+      await wait(50);
+      p = mk({ mode: 'closed', tag: 'div', html: vid(`autoplay src="${CLIP}"`) });
+      // Chromium defers offscreen native autoplay itself; explicitly start to exercise the same race there.
+      p.v.play().catch(() => {});
+      await wait(1000);
+      out.beforeSettings = playing(p.v);
+      document.documentElement.setAttribute('data-rbe-video', config);
+      await wait(1000);
+      out.afterSettings = playing(p.v);
+      out.closedDiagnostic = window.__rbeVideoState().videos.some(v => v.closed && v.outside && v.paused);
+      p.show(true); await wait(1000);
+      out.settingsResume = playing(p.v);
+      p.done();
+    }
     // C: autoplay attribute, the source arrives while the player is out of view (re-mount, lazy source)
     p = mk({ html: vid('autoplay') });
     await wait(1200);
@@ -555,11 +608,73 @@ r.us = { built: true };
   await p2.waitForTimeout(300);
   r.us.errors = usLogs;
   r.us.away = await awayChecks(p2);
+  // Every JSON fallback refuses access: stop on an unavailable post, then accept another step.
+  const blocked = await c2.newPage();
+  const blockedRequests = [];
+  await blocked.route(/reddit\.com/, route => {
+    const u = new URL(route.request().url());
+    if (/info\.json|\/by_id\/|\/comments\/.*\.json/.test(u.pathname)) {
+      blockedRequests.push(u.pathname);
+      return route.fulfill({ status: 403, body: '' });
+    }
+    if (u.pathname === '/r/blocked/') return route.fulfill({ contentType: 'text/html', body: `<shreddit-feed>${['blocked1', 'blocked2', 'blocked3'].map((id, i) =>
+      `<shreddit-post id="t3_${id}" post-type="image" permalink="/r/test/comments/${id}/post/" ${i === 1 ? '' : 'content-href="https://i.redd.it/blocked.png"'}></shreddit-post>`).join('')}</shreddit-feed>` });
+    return fixtures(route);
+  });
+  await blocked.goto('https://www.reddit.com/r/blocked/');
+  await blocked.waitForFunction(() => !!window.RBE?.openLightbox && !!RBE.settings);
+  await blocked.waitForTimeout(200);
+  await blocked.evaluate(() => {
+    RBE.settings.lightboxPosts = 'images';
+    RBE.settings.lightboxStyle = 'step';
+    window.blockedLb = RBE.openLightbox({ postId: 't3_blocked1', scope: 'feed' });
+  });
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-count')?.textContent === 'post 1/3');
+  await blocked.keyboard.press('ArrowDown');
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-err')?.textContent.includes('Couldn’t load this post') && document.querySelector('.rbe-lb-count')?.textContent === 'post 2/3', null, { timeout: 3000 });
+  await blocked.keyboard.press('j');
+  await blocked.waitForFunction(() => document.querySelector('.rbe-lb-count')?.textContent === 'post 3/3', { timeout: 3000 });
+  r.us.blockedStep = true;
+  const batchCount = () => blockedRequests.filter(u => /info\.json|\/by_id\//.test(u)).length;
+  const beforeRetry = batchCount();
+  await blocked.evaluate(() => RBE.getPost('t3_blocked4'));
+  const duringCooldown = batchCount();
+  await blocked.evaluate(async () => {
+    const now = Date.now;
+    Date.now = () => now() + 61000;
+    try { await RBE.getPost('t3_blocked5'); } finally { Date.now = now; }
+  });
+  r.us.batchRetry = beforeRetry === 2 && duringCooldown === beforeRetry && batchCount() === beforeRetry + 2;
+  await blocked.route('**/hung.json', () => {});
+  r.us.fetchTimeout = await blocked.evaluate(async () => {
+    try { await RBE.getJSON('/hung.json', { timeoutMs: 50 }); return false; }
+    catch (err) { return /timed out/.test(err.message); }
+  });
+  await blocked.clock.install();
+  await blocked.evaluate(() => {
+    const lb = window.blockedLb;
+    window.savedItems = lb.items;
+    lb.items = () => new Promise(() => {});
+    window.stalledStep = lb.step(-1);
+  });
+  await blocked.clock.runFor(15001);
+  r.us.stepWatchdog = await blocked.evaluate(async () => {
+    await window.stalledStep;
+    const lb = window.blockedLb, released = !lb.busy;
+    lb.items = window.savedItems;
+    await lb.step(-1);
+    return released && !lb.busy && lb.pi === 1;
+  });
+  await blocked.close();
   await b2.close();
   r.us.cost = await churnCost({ browserType: bt, name: r.us.browser, launchOpts, route: { re: /reddit\.com|redd\.it|redditstatic/, fn: fixtures }, url: 'https://www.reddit.com/r/test/', usFile });
 }
 
 const checks = {
+  'userscript: all JSON endpoints 403 still allow lightbox steps': r.us.blockedStep,
+  'userscript: batch endpoints retry after cooldown': r.us.batchRetry,
+  'userscript: hung JSON fetch times out': r.us.fetchTimeout,
+  'userscript: stalled step watchdog releases navigation': r.us.stepWatchdog,
   ...awayOk('userscript (' + (r.us.browser || '') + ')', r.us.away || {}),
   'theme style injected': r.themeStyle,
   'quick bar shown': r.quickbar,
@@ -607,9 +722,12 @@ const checks = {
   'userscript: an embedded player stays the provider\'s iframe; the bar opens the provider page': r.us.embedOut?.frame && r.us.embedOut.href === 'https://www.youtube.com/watch?v=abc',
   'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
   'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
-  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && r.us.lazy.below === 'about:blank' && r.us.lazy.behind === 'about:blank' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
+  'userscript: feed Redgifs frames unload offscreen and behind the lightbox, including src restarts': (f => f && f.off === 'about:blank' && f.restarted === 'about:blank' && f.behind === 'about:blank' && f.below === 'about:blank' && f.on === f.restored && f.disabled === f.on && f.enabled === 'about:blank' && /redgifs/.test(f.on))(r.us.feedFrame),
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
   'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
+  'userscript: closed-root native autoplay waits offscreen, starts on entry and pauses on exit': (o => o && !o.closedAutoplayOff && o.closedAutoplayIn && !o.closedAutoplayLeft)(r.us.offscreen),
+  'userscript: late settings stop closed-root playback and allow resume on entry': (o => o && o.beforeSettings && !o.afterSettings && o.settingsResume && o.closedDiagnostic)(r.us.offscreen),
   'userscript: the same for a player in a closed shadow root': (o => o && !o.bOff && o.bIn && !o.bLeft && o.bBack)(r.us.offscreen),
   'userscript: an autoplay player whose source arrives out of view waits until it comes in': (o => o && !o.cOff && o.cIn)(r.us.offscreen),
   'userscript: a player restarting its video after buffering out of view waits until it comes in': (o => o && !o.dOff && o.dIn)(r.us.offscreen),
