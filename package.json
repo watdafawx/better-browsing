@@ -4,9 +4,9 @@
   "userscriptRevision": {
     "reddit": 1,
     "instagram": 1,
-    "x": 1,
+    "x": 0,
     "pinterest": 1,
-    "combined": 1
+    "combined": 0
   },
   "private": true,
   "description": "Userscripts (Tampermonkey / Violentmonkey) for new Reddit, Instagram, X and Pinterest, one per site",

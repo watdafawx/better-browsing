@@ -20,13 +20,13 @@
   let lastGesture = 0, lastTarget = null;
   const onGesture = e => { lastGesture = Date.now(); lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target; };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => addEventListener(t, onGesture, true));
-  // Firefox never shows the page a click on a video's own controls (no pointerdown/click), only that the
-  // pointer is over it and that the page got user activation. So a play/pause while the pointer rests on
-  // this video and the page has user activation counts as yours too.
-  let hover = null;
-  ['mousemove', 'pointerover', 'mouseover'].forEach(t => addEventListener(t, e => { hover = e.target; }, { capture: true, passive: true }));
+  // Which side started a play/pause. The browser's own controls, and the media keys, never call play() or
+  // pause(), so a play/pause event that no page call came before is the user's, in both browsers (Firefox
+  // shows the page no click on a video's own controls at all). main-world.js marks the page's calls; the
+  // content script's own (start() and quiet()) are marked by them too, and told apart here.
+  const pageCall = (v, k) => performance.now() - (v[k] || 0) < 500;
   const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = v.closest(PLAYER); return !!p && p.contains(t); };
-  const userOn = v => (Date.now() - lastGesture <= 1500 && on(v, lastTarget)) || (!!navigator.userActivation?.isActive && on(v, hover));
+  const userOn = v => Date.now() - lastGesture <= 1500 && on(v, lastTarget);
 
   // ---------- native controls ----------
   function prep(v) {
@@ -127,7 +127,8 @@
     const v = e.target, s = XBB.settings;
     if (!managed(v)) return;
     if (away() && !userOn(v)) { quiet(v); return; }   // X restarting something while you are away
-    if (userOn(v)) {                       // you started it: it wins, and everything else yields
+    // Yours if you clicked the player, or if the browser's own controls started it (no play() call).
+    if (userOn(v) || !pageCall(v, '_xbbPagePlay')) {
       userPaused.delete(v);
       chosen = v;
       setPick(v);
@@ -142,7 +143,8 @@
   document.addEventListener('pause', e => {
     const v = e.target;
     if (!managed(v) || v.ended || performance.now() - (v._xbbQuiet || 0) < 400) return;
-    if (userOn(v)) { userPaused.add(v); if (chosen === v) chosen = null; }
+    // Paused by you: a click on the player, or the browser's own controls (which call no pause()).
+    if (userOn(v) || !pageCall(v, '_xbbPagePause')) { userPaused.add(v); if (chosen === v) chosen = null; }
   }, true);
   document.addEventListener('ended', e => {
     if (e.target === chosen) chosen = null;
