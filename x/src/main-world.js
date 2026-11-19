@@ -18,14 +18,26 @@
   const PLAYER = '[data-testid="videoPlayer"]';
   let lastGesture = 0, lastTarget = null;
   const gesture = () => Date.now() - lastGesture < 1200;
-  // A recent click/key on this video's own player (the video, its controls). Clicking elsewhere on the
-  // page is a gesture too, but X's mute/pause right after it is not the user's choice.
-  // Firefox never shows the page a click on a video's own controls, only the pointer resting on it and the
-  // page's user activation: that counts as the user's too.
-  let hover = null;
-  ['mousemove', 'pointerover', 'mouseover'].forEach(t => window.addEventListener(t, e => { hover = e.target; }, { capture: true, passive: true }));
+  // A recent click/key on this video's own player (the video, its own overlay and X's buttons inside it).
+  // Clicking elsewhere on the page is a gesture too, but X's mute/pause right after it is not the user's.
+  // The browser's own controls (native bar, media keys) send the page no click at all: they are told apart
+  // by not going through play()/pause() (see the wrappers below), so the pointer resting on a video is
+  // never needed here. Treating it as a click let X's own play()/mute calls through whenever the mouse
+  // happened to sit over a video (in the feed, most of the time), so X took the video from the pick and
+  // could mute it for good.
   const on = (el, t) => { if (!t) return false; if (t === el) return true; const p = el.closest(PLAYER); return !!p && p.contains(t); };
-  const userOn = el => (gesture() && on(el, lastTarget)) || (!!navigator.userActivation?.isActive && on(el, hover));
+  const userOn = el => gesture() && on(el, lastTarget);
+
+  // X reuses a <video> element for another tweet's media as the feed virtualises, so a mute that was the
+  // user's on one video must not silence the next one in the same element.
+  const userAudio = el => {
+    if (!el.dataset.xbbUserAudio) return false;
+    if (el.dataset.xbbUserAudioSrc === (el.currentSrc || '')) return true;
+    delete el.dataset.xbbUserAudio;
+    delete el.dataset.xbbUserAudioSrc;
+    return false;
+  };
+  const markUserAudio = el => { el.dataset.xbbUserAudio = '1'; el.dataset.xbbUserAudioSrc = el.currentSrc || ''; };
 
   // Parse the settings attribute only when it changes
   let cfg = {};
@@ -51,14 +63,14 @@
     lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target;
     if (cfg.mode !== 'volume' || !level()) return;
     for (const v of waiting) {
-      if (v.isConnected && !v.paused && !v.dataset.xbbUserAudio) { setVol(v, level()); setMuted(v, false); }
+      if (v.isConnected && !v.paused && !userAudio(v)) { setVol(v, level()); setMuted(v, false); }
       waiting.delete(v);
     }
   };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => window.addEventListener(t, onGesture, true));
 
   function applyAudio(el) {
-    if (el.dataset.xbbUserAudio) return;
+    if (userAudio(el)) return;
     if (cfg.mode === 'muted') setMuted(el, true);
     else if (cfg.mode === 'volume' || cfg.mode === 'off') {
       setVol(el, level());
@@ -76,10 +88,12 @@
   P.play = function () {
     if (!active(this)) return origPlay.apply(this, arguments);
     if (gated(this) && !mayPlay(this)) return Promise.resolve();   // swallow X's autoplay
+    this._xbbPagePlay = performance.now();   // a page call: X's, or ours; never the browser's own controls
     applyAudio(this);
     const el = this;
     return origPlay.call(this).catch(err => {
       if (err && err.name === 'NotAllowedError' && !el.muted) {
+        el._xbbPageWrite = performance.now();   // ours, not the browser's: it must not look like the user muting
         setMuted(el, true); // browser refuses sound before the first click: start muted, unmute on first gesture
         waiting.add(el);
         return origPlay.call(el);
@@ -87,15 +101,23 @@
       throw err;
     });
   };
+  // Same for pause: one the browser makes itself (its control bar, the media keys) never comes through here.
+  const origPause = P.pause;
+  P.pause = function () {
+    if (active(this)) this._xbbPagePause = performance.now();
+    return origPause.apply(this, arguments);
+  };
 
   // X mutes new videos and keeps its own mute state. With browser controls on, X's own mute button is
   // hidden, so a mute or volume write from the page is never the user's; theirs come from the browser
-  // controls (volumechange below). Without browser controls, a write right after a click on the player counts.
+  // controls, which call no setter at all (volumechange below). Without browser controls, a write right
+  // after a click on the player counts: that is X's own overlay button, a page element in both browsers.
   const nativeOn = () => root.classList.contains('xbb-native');
   const userWrite = el => {
     if (!active(el)) return true;
+    el._xbbPageWrite = performance.now();     // a write from the page, allowed below or not: not the browser's
     if (nativeOn() || !userOn(el)) return false;
-    el.dataset.xbbUserAudio = '1';
+    markUserAudio(el);
     waiting.delete(el);
     return true;
   };
@@ -132,23 +154,24 @@
   setInterval(() => {
     if (cfg.mode !== 'volume' || !level() || document.hidden || !activated()) return;
     for (const v of document.querySelectorAll('video')) {
-      if (v.paused || !v.muted || v.dataset.xbbUserAudio || !active(v)) continue;
+      if (v.paused || !v.muted || userAudio(v) || !active(v)) continue;
       waiting.delete(v);
       setVol(v, level());
       setMuted(v, false);
     }
   }, 600);
 
-  // The browser's own controls change volume/mute without going through the setters above. A change on
-  // this player that differs from our level is the user's: keep it for this video, and a volume they
-  // set (not a mute) becomes the level for the videos after it.
+  // The browser's own controls change volume/mute without going through the setters above, and send the
+  // page no click either: a change that is neither our level nor a page write is the user's. Keep it for
+  // this video, and a volume they set (not a mute) becomes the level for the videos after it.
   document.addEventListener('volumechange', e => {
     const v = e.target;
-    if (!active(v) || v.dataset.xbbUserAudio || !userOn(v)) return;
+    if (!active(v) || userAudio(v)) return;
     const want = cfg.mode === 'muted' ? null : level();
     const same = want === null ? v.muted : v.muted === (want === 0) && Math.abs(v.volume - want) < 0.01;
-    if (same) return;
-    v.dataset.xbbUserAudio = '1';
+    if (same) return;                                               // our own level, or a write we matched
+    if (performance.now() - (v._xbbPageWrite || 0) < 100) return;    // X's (blocked or allowed above)
+    markUserAudio(v);
     waiting.delete(v);
     if (!v.muted && v.volume > 0 && cfg.mode !== 'muted') sessionVol = v.volume;
   }, true);

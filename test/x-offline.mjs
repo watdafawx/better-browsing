@@ -89,11 +89,12 @@ const launchOpts = FF ? { firefoxUserPrefs: process.env.FFDEFAULT ? {} : { 'medi
 const browser = await (FF ? firefox : chromium).launch(launchOpts);
 const logs = [], ok = {}, r = {};
 const check = (name, cond, detail) => { ok[name] = !!cond; r[name] = detail; };
-async function open(seed, urlPath = '/home', height = 900) {
+async function open(seed, urlPath = '/home', height = 900, init = '') {
   const ctx = await browser.newContext({ viewport: { width: 1400, height } });
   await ctx.route(/x\.com|example\.test/, fixtures);
   if (!FF) await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://x.com' });
   await ctx.addInitScript(seed ? `localStorage.setItem('xbb-userscript-settings', ${JSON.stringify(JSON.stringify({ settings: seed }))});` : '');
+  if (init) await ctx.addInitScript(init);
   await ctx.addInitScript({ path: usFile });
   const page = await ctx.newPage();
   page.on('console', m => { if (m.type() === 'error' || /XBB/.test(m.text())) logs.push(`[${m.type()}] ${m.text()}`); });
@@ -312,6 +313,66 @@ const geo = (page, ids) => page.evaluate(ids => { const mid = innerHeight / 2; r
   const run = await page.evaluate(() => [...document.querySelectorAll('video')].filter(v => !v.paused).map(v => v.id));
   check('feed, X autoplaying by itself: no video starts and stops again while it is well in view', flick.length === 0, flick);
   check('feed, X autoplaying by itself: one video plays when scrolling stops', run.length === 1, run);
+  await ctx.close();
+}
+
+// ---------- a pointer that rests over a video must not make X's own play()/mute the user's ----------
+// Chrome does show the page a click on a video's own controls; only Firefox needs to guess from the pointer
+// and the page's user activation. In Chrome that guess made X's autoplay count as the user's whenever the
+// mouse happened to sit over a video, so X took the video from the pick (two played) and its mute stuck, and
+// blocking the mute for good (data-xbb-user-audio) left the video silent.
+const park = async (page, id) => {   // pointer comes to rest on that video, then you press a key (no pointer move)
+  const b = await page.locator('#' + id).boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.keyboard.press('Shift');
+  await page.waitForTimeout(150);
+};
+if (!FF) {
+  const { ctx, page } = await open();
+  await page.waitForTimeout(1500);
+  const before = playing(await vids(page));
+  const other = ['v1', 'v2', 'v3'].find(id => id !== before);
+  await park(page, other);
+  await page.evaluate(id => { const v = document.getElementById(id); v.muted = true; v.play().catch(() => {}); }, other);   // X's own autoplay
+  await page.waitForTimeout(600);
+  const after = await vids(page);
+  check('a pointer resting over a video does not let X take the pick', playing(after) === before && !after.find(v => v.id === other).playing, { before, after });
+  await ctx.close();
+
+  // with browser controls off, X's mute write is the other half of the same guess
+  const c2 = await open({ nativeControls: false }), page2 = c2.page;
+  await page2.waitForTimeout(1500);
+  const on = playing(await vids(page2));
+  await park(page2, on);
+  const wrote = await page2.evaluate(id => { const v = document.getElementById(id); v.muted = true; return { muted: v.muted, user: v.dataset.xbbUserAudio || '' }; }, on);
+  await page2.waitForTimeout(500);
+  const now = (await vids(page2)).find(v => v.id === on);
+  check('a pointer resting over a video does not let X mute it for good', wrote.muted === false && wrote.user === '' && now.muted === false, { wrote, now });
+  await c2.ctx.close();
+}
+
+// ---------- the browser's own controls (native bar, media keys) never call play()/pause() ----------
+// A play or pause that no page call came before is the user's, whoever started it. The video's own bar is
+// invisible to the page in every browser (it swallows the click), so without this a pause from the bar was
+// taken for X's and the video started again by itself.
+{
+  const { ctx, page } = await open(null, '/home', 900, 'window.__orig = { play: HTMLMediaElement.prototype.play, pause: HTMLMediaElement.prototype.pause, muted: Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "muted") };');
+  await page.waitForTimeout(1500);
+  const first = playing(await vids(page));
+  await page.evaluate(id => window.__orig.pause.call(document.getElementById(id)), first);   // the bar's pause
+  await page.waitForTimeout(400);                                                             // Firefox delivers the pause event a task later
+  await page.mouse.wheel(0, 10);                                                              // our own re-evaluate
+  await page.waitForTimeout(900);
+  const stopped = playing(await vids(page));
+  check('browser controls: a pause from the video\'s own bar sticks', stopped === '', stopped);
+  await page.evaluate(id => window.__orig.play.call(document.getElementById(id)), first);    // the bar's play
+  await page.waitForTimeout(700);
+  const resumed = playing(await vids(page));
+  check('browser controls: a play from the bar plays that video, alone', resumed === first, resumed);
+  const muted = await page.evaluate(id => { const v = document.getElementById(id); window.__orig.muted.set.call(v, true); return v.muted; }, first);   // the bar's mute
+  await page.waitForTimeout(1200);   // the safety net that unmutes X's own mutes runs every 600 ms
+  const afterMute = (await vids(page)).find(v => v.id === first);
+  check('browser controls: a mute from the bar is kept', muted === true && afterMute.muted === true, { muted, afterMute });
   await ctx.close();
 }
 
