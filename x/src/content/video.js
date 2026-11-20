@@ -75,7 +75,12 @@
   function start(v) {
     if (failed.has(v)) return;
     // main-world.js's play() handles sound before the first click (starts muted, unmutes on the click)
-    v.play().catch(err => { if (err?.name !== 'AbortError') failed.add(v); });
+    v.play().catch(err => {
+      // Neither a pause by us nor a browser that refuses to start before the first click is a reason to
+      // give up on this video: after a click it may play, and the click schedules another try.
+      if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') return;
+      failed.add(v);
+    });
   }
   const setPick = v => {
     if (pick === v) return;

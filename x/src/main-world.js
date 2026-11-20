@@ -63,8 +63,14 @@
     lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target;
     if (cfg.mode !== 'volume' || !level()) return;
     for (const v of waiting) {
-      if (v.isConnected && !v.paused && !userAudio(v)) { setVol(v, level()); setMuted(v, false); }
-      waiting.delete(v);
+      if (!v.isConnected || userAudio(v)) { waiting.delete(v); continue; }
+      if (v.paused) {
+        // The browser refused even a muted start (Firefox's "block audio and video"): try the pick again
+        // now that the page has had a click, which is what it was waiting for.
+        if (v.hasAttribute('data-xbb-pick') && canSound(v)) { waiting.delete(v); setVol(v, level()); setMuted(v, false); origPlay.call(v).catch(() => {}); }
+        continue;
+      }
+      setVol(v, level()); setMuted(v, false); waiting.delete(v);
     }
   };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => window.addEventListener(t, onGesture, true));
@@ -144,22 +150,25 @@
   // Before the page has had a click, unmuting would make the browser pause the video: wait for the click.
   const activated = () => !!navigator.userActivation?.hasBeenActive;
   // May this video make sound now? Unmuting a playing video that may not makes the browser pause it, and
-  // X then restarts it with sound still refused: play, stop, play silent.
+  // X then restarts it with sound still refused: play, stop, play silent. On Firefox the browser answers
+  // for itself (navigator.getAutoplayPolicy), which also covers a site the user put on its autoplay allow
+  // list: x.com there may play with sound on a fresh page, before any click, and holding it for a click
+  // kept it muted anyway.
   const canSound = el => { try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {} return activated(); };
   document.addEventListener('playing', e => {
     const v = e.target;
     if (!active(v)) return;
-    if (!activated() && v.muted && cfg.mode === 'volume') { waiting.add(v); return; }
-    if (waiting.has(v) && activated()) waiting.delete(v);
-    if (!waiting.has(v)) applyAudio(v);
+    if (v.muted && cfg.mode === 'volume' && !canSound(v)) { waiting.add(v); return; }
+    waiting.delete(v);
+    applyAudio(v);
   }, true);
 
   // Safety net: a playing video that is muted though the user never muted it gets our level back.
-  // Only after the page has had a click or key press (unmuting before that pauses the video).
+  // Only where the browser would let it make sound: unmuting before that pauses the video.
   setInterval(() => {
-    if (cfg.mode !== 'volume' || !level() || document.hidden || !activated()) return;
+    if (cfg.mode !== 'volume' || !level() || document.hidden) return;
     for (const v of document.querySelectorAll('video')) {
-      if (v.paused || !v.muted || userAudio(v) || !active(v)) continue;
+      if (v.paused || !v.muted || userAudio(v) || !active(v) || !canSound(v)) continue;
       waiting.delete(v);
       setVol(v, level());
       setMuted(v, false);

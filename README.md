@@ -92,7 +92,7 @@ These are the Reddit script's. Instagram, X and Pinterest have theirs in [instag
 
 ## Notes and limits
 
-- **Sound before the first click**: browsers block audible autoplay until you've interacted with the page. Until then videos start muted, then unmute to your chosen volume on your first click or key press.
+- **Sound before the first click**: browsers block audible autoplay until you've interacted with the page. Until then videos start muted, then unmute to your chosen volume on your first click or key press. In Firefox, put the site on its autoplay allow list (the crossed-out play icon in the address bar, "Allow audio and video") and videos play with sound straight away; the script asks the browser whether a video may make sound instead of waiting for a click.
 - **Voting and replying** aren't built into the viewer yet. Use "Reply on Reddit ↗" or "Open on Reddit".
 - **Old Reddit** (old.reddit.com) is not supported.
 - Reddit changes its page markup often. The viewer and image viewer load content from Reddit's JSON API, so they hold up well. Themes and layout presets depend on Reddit's CSS names and may need updating; use Custom CSS for quick fixes.

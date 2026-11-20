@@ -213,7 +213,7 @@
   document.addEventListener('playing', e => {
     const v = e.target;
     if (!active(v)) return;
-    if (waitingForGesture.has(v) && activated()) waitingForGesture.delete(v);
+    if (waitingForGesture.has(v) && canSound(v)) waitingForGesture.delete(v);
     if (!waitingForGesture.has(v)) applyAudio(v, cfg());
   }, true);
   // The browser's own controls change volume/mute without the setters above: a change on this
@@ -227,13 +227,13 @@
   }, true);
 
   // Safety net: a playing video that is muted (or silent, e.g. volume left at 0) though the user
-  // never changed its audio gets our level back. Only after the page has had a click or key press:
+  // never changed its audio gets our level back. Only where the browser would let it make sound:
   // unmuting before that makes the browser pause it.
   // Videos inside shadow roots don't show up in querySelectorAll, so track what has played.
   document.addEventListener('play', e => { if (active(e.target)) played.add(e.target); }, true);
   setInterval(() => {
     const c = cfg();
-    const audio = c.mode === 'volume' && c.volume && !document.hidden && activated();
+    const audio = c.mode === 'volume' && c.volume && !document.hidden;
     const want = wantVol(c);
     for (const v of played) {
       if (!v.isConnected) { played.delete(v); continue; }
