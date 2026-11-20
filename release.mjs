@@ -43,7 +43,7 @@ const files = fs.readdirSync('dist').filter(f => f.endsWith('.user.js')).sort();
 if (!files.length) fail('dist/ has no scripts.');
 const published = new Set(JSON.parse(out('gh', ['release', 'view', TAG, '--repo', REPO, '--json', 'assets'])).assets.map(a => a.name));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-release-'));
-const changed = [];
+const changed = [], metasOnly = [];
 for (const f of files) {
   const meta = f.replace(/\.user\.js$/, '.meta.js');
   if (!fs.existsSync(path.join('dist', meta))) fail(`dist/${meta} is missing.`);
@@ -57,16 +57,24 @@ for (const f of files) {
   if (c === 0 && remote.replace(/\r\n/g, '\n') !== local.replace(/\r\n/g, '\n'))
     fail(`${f} changed but is still ${v}, the published version. Bump the part's version or its userscriptRevision in package.json.`);
   if (c === 0 && !published.has(meta)) { console.log(`${f}: ${v}, unchanged; adding its missing ${meta}`); changed.push(f); continue; }
-  if (c === 0) { console.log(`${f}: ${v}, unchanged`); continue; }
+  if (c === 0) {
+    // A release killed between its two uploads leaves the new script next to an old meta file, and a
+    // manager never sees the change. Compare the published meta too and put it right.
+    out('gh', ['release', 'download', TAG, '--repo', REPO, '--pattern', meta, '--dir', tmp, '--clobber']);
+    const mv = versionOf(fs.readFileSync(path.join(tmp, meta), 'utf8'));
+    if (mv !== v) { console.log(`${f}: ${v}, unchanged; its published ${meta} is ${mv || 'not a script header'}, uploading that`); metasOnly.push(meta); continue; }
+    console.log(`${f}: ${v}, unchanged`);
+    continue;
+  }
   console.log(`${f}: ${rv} -> ${v}`); changed.push(f);
 }
 fs.rmSync(tmp, { recursive: true, force: true });
-if (!changed.length) fail('nothing to publish: every script equals the published one.');
+if (!changed.length && !metasOnly.length) fail('nothing to publish: every script equals the published one.');
 
 const upload = list => {
   const r = run('gh', ['release', 'upload', TAG, '--repo', REPO, ...list.map(f => path.join('dist', f)), '--clobber'], { stdio: 'inherit' });
   if (r.status !== 0) fail(`gh release upload failed for ${list.join(', ')}.`);
 };
 upload(changed);
-upload(changed.map(f => f.replace(/\.user\.js$/, '.meta.js')));
-console.log(`published ${changed.length} script(s): ${changed.join(', ')}`);
+upload([...new Set([...changed.map(f => f.replace(/\.user\.js$/, '.meta.js')), ...metasOnly])]);
+console.log(`published ${changed.length} script(s)${metasOnly.length ? ` and ${metasOnly.length} meta file(s)` : ''}: ${[...changed, ...metasOnly].join(', ')}`);
