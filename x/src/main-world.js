@@ -12,8 +12,13 @@
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
   const autoDesc = Object.getOwnPropertyDescriptor(P, 'autoplay');
-  const setMuted = (el, v) => mutedDesc.set.call(el, v);
-  const setVol = (el, v) => volDesc.set.call(el, v);
+  // Remember the audio state our own writes leave, so the volumechange they cause is never taken for the
+  // user's (a video we had to leave muted before the first click stayed muted for good that way).
+  const mine = new WeakMap();
+  const note = el => mine.set(el, [mutedDesc.get.call(el), volDesc.get.call(el)]);
+  const isMine = el => { const m = mine.get(el); return !!m && m[0] === el.muted && Math.abs(m[1] - el.volume) < 0.01; };
+  const setMuted = (el, v) => { mutedDesc.set.call(el, v); note(el); };
+  const setVol = (el, v) => { volDesc.set.call(el, v); note(el); };
 
   const PLAYER = '[data-testid="videoPlayer"]';
   let lastGesture = 0, lastTarget = null;
@@ -61,7 +66,7 @@
   const onGesture = e => {
     lastGesture = Date.now();
     lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target;
-    if (cfg.mode !== 'volume' || !level()) return;
+    if (e.type === 'focusin' || cfg.mode !== 'volume' || !level()) return;
     for (const v of waiting) {
       if (!v.isConnected || userAudio(v)) { waiting.delete(v); continue; }
       if (v.paused) {
@@ -104,7 +109,7 @@
         el._xbbPageWrite = performance.now();   // ours, not the browser's: it must not look like the user muting
         setMuted(el, true); // browser refuses sound before the first click: start muted, unmute on first gesture
         waiting.add(el);
-        return origPlay.call(el);
+        return origPlay.call(el).catch(e => { if (e?.name !== 'AbortError') throw e; });
       }
       throw err;
     });
@@ -180,7 +185,7 @@
   // this video, and a volume they set (not a mute) becomes the level for the videos after it.
   document.addEventListener('volumechange', e => {
     const v = e.target;
-    if (!active(v) || userAudio(v)) return;
+    if (!active(v) || userAudio(v) || isMine(v)) return;
     const want = cfg.mode === 'muted' ? null : level();
     const same = want === null ? v.muted : v.muted === (want === 0) && Math.abs(v.volume - want) < 0.01;
     if (same) return;                                               // our own level, or a write we matched

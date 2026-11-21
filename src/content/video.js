@@ -163,7 +163,7 @@
   }
   const frameIO = typeof IntersectionObserver === 'function' && new IntersectionObserver(entries => {
     for (const e of entries) { frameVisible.set(e.target, e.isIntersecting); syncFrame(e.target); }
-  });
+  }, { threshold: 0.15 });
   function forgetFrame(f) {
     frameIO?.unobserve(f);
     frameObservers.get(f)?.disconnect();
@@ -175,11 +175,21 @@
     if (frameIO) frameIO.observe(frame); else frame.src = src;
     return frame;
   };
-  function redgifsFrame(f) {
+  function isRedgifsUrl(raw) {
     try {
-      const u = new URL(f.src);
-      return /(^|\.)redgifs\.com$/i.test(u.hostname) && u.pathname.startsWith('/ifr/');
-    } catch { return false; }
+      const u = new URL(raw);
+      if (/(^|\.)redgifs\.com$/i.test(u.hostname) && /^\/(?:ifr|watch)\//i.test(u.pathname)) return true;
+      if (/(^|\.)embedly\.com$/i.test(u.hostname)) {
+        for (const k of ['src', 'url']) {
+          const inner = u.searchParams.get(k);
+          if (inner && isRedgifsUrl(inner)) return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+  function redgifsFrame(f) {
+    return isRedgifsUrl(f.src);
   }
   function guardFeedFrame(f) {
     if (frameSrc.has(f) || !redgifsFrame(f)) return;

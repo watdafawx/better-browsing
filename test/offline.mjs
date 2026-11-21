@@ -55,10 +55,10 @@ const fixtures = async route => {
   if (u.pathname.endsWith('.m3u8')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.endsWith('.mp4')) return route.fulfill({ status: 404, body: '' });
   if (u.pathname.startsWith('/r/test')) return route.fulfill({ status: 200, contentType: 'text/html', body: feed });
-  if (/redgifs\.com$/.test(u.hostname)) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><p>redgifs player</p>' });
+  if (/redgifs\.com$|embedly\.com$/.test(u.hostname)) return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><p>redgifs player</p>' });
   return route.fulfill({ status: 404, body: '' });
 };
-await ctx.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
+await ctx.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com|embedly\.com/, fixtures);
 
 const logs = [];
 const page = await ctx.newPage();
@@ -274,7 +274,7 @@ r.us = { built: true };
   r.us.browser = FF ? 'firefox' : 'chromium';
   const b2 = await bt.launch(launchOpts);
   const c2 = await b2.newContext({ viewport: { width: 1400, height: 900 } });
-  await c2.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com/, fixtures);
+  await c2.route(/reddit\.com|redd\.it|redditstatic|redgifs\.com|embedly\.com/, fixtures);
   await c2.addInitScript({ path: usFile });
   const p2 = await c2.newPage();
   const usLogs = [];
@@ -438,7 +438,16 @@ r.us = { built: true };
     await wait(); const disabled = f.getAttribute('src');
     await RBE.api.storage.sync.get('settings').then(({ settings = {} }) => RBE.api.storage.sync.set({ settings: { ...settings, videoPauseOffscreen: true } }));
     await wait(); const enabled = f.getAttribute('src');
-    f.remove(); return { off, restarted, on, behind, restored, below, disabled, enabled };
+    f.remove();
+    const em = document.createElement('iframe');
+    em.style.cssText = 'position:fixed;left:0;top:5000px;width:300px;height:200px';
+    em.src = 'https://cdn.embedly.com/widgets/media.html?src=' + encodeURIComponent(src);
+    document.body.append(em); await wait();
+    const embedlyOff = em.getAttribute('src');
+    em.style.top = '100px'; await wait();
+    const embedlyOn = em.getAttribute('src');
+    em.remove();
+    return { off, restarted, on, behind, restored, below, disabled, enabled, embedlyOff, embedlyOn };
   });
   // Videos out of view: nothing plays while wholly outside the viewport, and what the page wanted playing
   // starts when it comes in. Real clips, players in open and closed shadow roots, the ways Reddit's players
@@ -723,7 +732,7 @@ const checks = {
   'userscript: a provider link builds its own player (redgifs, YouTube, gifv) and never hijacks hosted videos': r.us.redgifs?.rg === 'https://www.redgifs.com/ifr/tremendousthoughtfulneonrainbowfish' && r.us.redgifs.yt === 'https://www.youtube-nocookie.com/embed/abc123' && /\.mp4$/.test(r.us.redgifs.gifv) && r.us.redgifs.host === null,
   'userscript: a redgifs post with no API data opens the redgifs player, not Reddit\'s silent preview': /^https:\/\/www\.redgifs\.com\/ifr\/tremendousthoughtfulneonrainbowfish/.test(r.us.redgifs?.iframe || '') && !r.us.redgifs.video,
   'userscript: a provider player is mounted only in view (no audio from an embed behind you)': r.us.lazy?.off === '' && r.us.lazy.below === 'about:blank' && r.us.lazy.behind === 'about:blank' && /^https:\/\/www\.redgifs\.com\/ifr\//.test(r.us.lazy?.on || ''),
-  'userscript: feed Redgifs frames unload offscreen and behind the lightbox, including src restarts': (f => f && f.off === 'about:blank' && f.restarted === 'about:blank' && f.behind === 'about:blank' && f.below === 'about:blank' && f.on === f.restored && f.disabled === f.on && f.enabled === 'about:blank' && /redgifs/.test(f.on))(r.us.feedFrame),
+  'userscript: feed Redgifs frames unload offscreen and behind the lightbox, including src restarts': (f => f && f.off === 'about:blank' && f.restarted === 'about:blank' && f.behind === 'about:blank' && f.below === 'about:blank' && f.on === f.restored && f.disabled === f.on && f.enabled === 'about:blank' && /redgifs/.test(f.on) && f.embedlyOff === 'about:blank' && /embedly\.com/.test(f.embedlyOn))(r.us.feedFrame),
   'userscript: an embedded player has a reload button for a dead provider': r.us.redgifs?.reload === true,
   'userscript: a page player\'s play() out of view waits, plays in view, pauses as it leaves and comes back (open shadow root)': (o => o && !o.aOff && o.aIn && !o.aLeft && o.aBack)(r.us.offscreen),
   'userscript: closed-root native autoplay waits offscreen, starts on entry and pauses on exit': (o => o && !o.closedAutoplayOff && o.closedAutoplayIn && !o.closedAutoplayLeft)(r.us.offscreen),
