@@ -2,10 +2,13 @@
 /* X lays its own controls (play, mute, time, captions) over every video, in a layer after the one that
    holds the <video>. With browser controls on, that layer is invisible and click-through. */
 html.xbb-native [data-testid="videoPlayer"] [data-testid="videoComponent"] > :not(:has(video)),
-html.xbb-native [data-testid="videoPlayer"] [data-testid="videoComponent"] > :not(:has(video)) * {
+html.xbb-native [data-testid="videoPlayer"] [data-testid="videoComponent"] > :not(:has(video)) *,
+html.xbb-native [data-xbb-player] > :not(:has(video)),
+html.xbb-native [data-xbb-player] > :not(:has(video)) * {
   pointer-events: none !important;
 }
-html.xbb-native [data-testid="videoPlayer"] [data-testid="videoComponent"] > :not(:has(video)) { opacity: 0 !important; }
+html.xbb-native [data-testid="videoPlayer"] [data-testid="videoComponent"] > :not(:has(video)),
+html.xbb-native [data-xbb-player] > :not(:has(video)) { opacity: 0 !important; }
 
 /* ---------- one-click retweet: hide the menu while we confirm it ---------- */
 html.xbb-rt #layers [role="menu"],

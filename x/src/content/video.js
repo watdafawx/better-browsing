@@ -8,7 +8,7 @@
   const ours = v => !!v.closest('.xbb-root');
   // GIFs sit in the same kind of player (a looping video from /tweet_video/): X keeps handling those
   const isGif = v => v.hasAttribute('data-xbb-gif') || /\/tweet_video\//.test(v.currentSrc || v.src || '');
-  const managed = v => v instanceof HTMLVideoElement && !ours(v) && !!v.closest(PLAYER) && !isGif(v);
+  const managed = v => v instanceof HTMLVideoElement && !ours(v) && !isGif(v);
 
   const score = new Map();         // the videos we watch (the observer only wakes us up; see sc())
   const userPaused = new WeakSet();
@@ -30,17 +30,20 @@
   // The bar's own play: no play() came before it, and using the bar focuses the video (Chrome fires no
   // other event at all, Firefox a focus event). A video the browser restarts by itself is not focused.
   const barPlay = v => !pageCall(v, '_xbbPagePlay') && document.activeElement === v;
-  const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = v.closest(PLAYER); return !!p && p.contains(t); };
+  const playerOf = v => v.closest(PLAYER) || v.parentElement?.parentElement;
+  const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = playerOf(v); return !!p && p !== document.body && p !== document.documentElement && p.contains(t); };
   const userOn = v => Date.now() - lastGesture <= 1500 && on(v, lastTarget);
 
   // ---------- native controls ----------
   function prep(v) {
     if (!managed(v)) return;
     const s = XBB.settings;
+    const box = v.closest('[data-testid="videoComponent"]') || v.parentElement?.parentElement;
     if (s.nativeControls) {
       if (!v.controls) v.controls = true;
       v.loop = !!s.videoLoop;
       v.dataset.xbbNative = '1';
+      if (box && box !== document.body && box !== document.documentElement) box.setAttribute('data-xbb-player', '1');
       if (!v._xbbClick) {
         // Clicks on the controls must not reach X, which would open the tweet
         v._xbbClick = e => { if (v.dataset.xbbNative) e.stopPropagation(); };
@@ -49,6 +52,7 @@
     } else if (v.dataset.xbbNative) {
       v.controls = false;
       delete v.dataset.xbbNative;
+      box?.removeAttribute('data-xbb-player');
     }
   }
 
@@ -181,7 +185,7 @@
   const seen = new WeakSet();
   function scan() {
     document.querySelectorAll('video').forEach(v => {
-      if (seen.has(v) || ours(v) || !v.closest(PLAYER)) return;
+      if (seen.has(v) || ours(v)) return;
       if (v.loop) v.setAttribute('data-xbb-gif', '');   // X loops GIFs itself; a real video only loops by our setting, applied below
       seen.add(v);
       if (!managed(v)) return;

@@ -30,7 +30,8 @@
   // never needed here. Treating it as a click let X's own play()/mute calls through whenever the mouse
   // happened to sit over a video (in the feed, most of the time), so X took the video from the pick and
   // could mute it for good.
-  const on = (el, t) => { if (!t) return false; if (t === el) return true; const p = el.closest(PLAYER); return !!p && p.contains(t); };
+  const playerOf = el => el.closest(PLAYER) || el.parentElement?.parentElement;
+  const on = (el, t) => { if (!t) return false; if (t === el) return true; const p = playerOf(el); return !!p && p !== document.body && p !== document.documentElement && p.contains(t); };
   const userOn = el => gesture() && on(el, lastTarget);
 
   // X reuses a <video> element for another tweet's media as the feed virtualises, so a mute that was the
@@ -55,7 +56,7 @@
   const isGif = el => el.hasAttribute('data-xbb-gif') || /\/tweet_video\//.test(el.currentSrc || el.src || '');
   const active = el => {
     const m = cfg.mode;
-    return !!m && m !== 'default' && el instanceof HTMLVideoElement && !ours(el) && !!el.closest(PLAYER) && !isGif(el);
+    return !!m && m !== 'default' && el instanceof HTMLVideoElement && !ours(el) && !isGif(el);
   };
   // Volume the user last chose with the browser controls on any video (until the page reloads)
   let sessionVol = null;
