@@ -185,7 +185,7 @@
   // this video, and a volume they set (not a mute) becomes the level for the videos after it.
   document.addEventListener('volumechange', e => {
     const v = e.target;
-    if (!active(v) || userAudio(v) || isMine(v)) return;
+    if (!active(v) || userAudio(v) || isMine(v) || !mine.has(v)) return;
     const want = cfg.mode === 'muted' ? null : level();
     const same = want === null ? v.muted : v.muted === (want === 0) && Math.abs(v.volume - want) < 0.01;
     if (same) return;                                               // our own level, or a write we matched
