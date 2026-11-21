@@ -33,11 +33,19 @@ if (!clean()) fail('the working tree has uncommitted changes (git status). Commi
 const repo = out('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner']);
 if (repo !== REPO) fail(`this checkout's GitHub repo is ${repo}, but the scripts' update URLs point at ${REPO}. Rename the repo first.`);
 
-const testArgs = process.argv.slice(2);
-console.log('running npm run test:all' + (testArgs.length ? ' -- ' + testArgs.join(' ') : '') + ' ...');
-const t = run(process.execPath, ['test/all.mjs', ...testArgs], { stdio: 'inherit' });
-if (t.status !== 0) fail('npm run test:all failed.');
-if (!clean()) fail('the tests changed tracked files (git status).');
+const args = process.argv.slice(2);
+const runAll = args.includes('--test') || args.some(a => a.startsWith('--site='));
+if (runAll) {
+  const testArgs = args.filter(a => a !== '--test');
+  console.log('running npm run test:all' + (testArgs.length ? ' -- ' + testArgs.join(' ') : '') + ' ...');
+  const t = run(process.execPath, ['test/all.mjs', ...testArgs], { stdio: 'inherit' });
+  if (t.status !== 0) fail('npm run test:all failed.');
+} else {
+  console.log('building and checking headers ...');
+  if (run(process.execPath, ['build.js'], { stdio: 'inherit' }).status !== 0) fail('build failed.');
+  if (run(process.execPath, ['test/headers.mjs'], { stdio: 'inherit' }).status !== 0) fail('test/headers.mjs failed.');
+}
+if (!clean()) fail('the build/tests changed tracked files (git status).');
 
 const files = fs.readdirSync('dist').filter(f => f.endsWith('.user.js')).sort();
 if (!files.length) fail('dist/ has no scripts.');
