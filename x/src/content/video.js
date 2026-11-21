@@ -20,10 +20,13 @@
   let lastGesture = 0, lastTarget = null;
   const onGesture = e => { lastGesture = Date.now(); lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target; };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => addEventListener(t, onGesture, true));
+  // In Firefox's content realm (Violentmonkey on nonce-CSP sites like x.com), Xray wrappers bypass
+  // page-world prototype patches and hide expando properties set by main-world.js.
+  const pageEl = v => v.wrappedJSObject || v;
   // Which side paused. The browser's own controls, and the media keys, never call pause(), and send the
   // page no click either in Chrome (Firefox reports the focus): a pause that no page pause() came before
   // is the user's. main-world.js marks the page's calls (X's pauses always go through pause()).
-  const pageCall = (v, k) => performance.now() - (v[k] || 0) < 500;
+  const pageCall = (v, k) => performance.now() - (pageEl(v)[k] || 0) < 500;
   // The bar's own play: no play() came before it, and using the bar focuses the video (Chrome fires no
   // other event at all, Firefox a focus event). A video the browser restarts by itself is not focused.
   const barPlay = v => !pageCall(v, '_xbbPagePlay') && document.activeElement === v;
@@ -59,7 +62,7 @@
     const h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
     return w <= 0 || h <= 0 ? 0 : h / Math.min(r.height, innerHeight);
   };
-  const quiet = v => { v._xbbQuiet = performance.now(); v.pause(); };   // a pause that is ours, not yours
+  const quiet = v => { v._xbbQuiet = performance.now(); pageEl(v).pause(); };   // a pause that is ours, not yours
   const isPip = v => document.pictureInPictureElement === v;
 
   // ---------- tab hidden / window unfocused: pause, and let nothing start meanwhile ----------
@@ -74,8 +77,16 @@
 
   function start(v) {
     if (failed.has(v)) return;
-    // main-world.js's play() handles sound before the first click (starts muted, unmutes on the click)
-    v.play().catch(err => {
+    const s = XBB.settings;
+    // If main-world.js didn't inject (strict CSP without a nonce), apply audio from here too.
+    if (!(window.wrappedJSObject || window).__xbbMainWorld && s.videoMode === 'volume') {
+      const vol = Math.max(0, Math.min(1, (+s.videoVolume || 0) / 100));
+      v.volume = vol;
+      v.muted = vol === 0;
+    }
+    // main-world.js's play() handles sound before the first click (starts muted, unmutes on the click);
+    // unwrap in Firefox's content realm so Xray wrappers don't bypass the page-world prototype patch.
+    pageEl(v).play().catch(err => {
       // Neither a pause by us nor a browser that refuses to start before the first click is a reason to
       // give up on this video: after a click it may play, and the click schedules another try.
       if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') return;
