@@ -128,6 +128,7 @@
         type: type === 'video' ? 'video' : 'gif',
         url: mp4.length ? mp4[0].url : null,
         bitrate: mp4.length ? num(mp4[0].bitrate) : 0,
+        variants: mp4.map(v => ({ url: v.url, bitrate: num(v.bitrate) })),   // every MP4, best first
         hls: hls ? hls.url : null,
         duration: num(vi.duration_millis),
         poster: str(m.media_url_https),

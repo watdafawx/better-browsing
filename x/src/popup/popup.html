@@ -41,6 +41,21 @@
   <p class="hint">The link is <code>https://&lt;domain&gt;/&lt;user&gt;/status/&lt;id&gt;</code>. Click the box to pick <code>vxtwitter.com</code>, <code>fxtwitter.com</code>, <code>fixupx.com</code> or <code>fixvx.com</code> (or type another). If previews stop working, switch domain.</p>
 </section>
 <section>
+  <h2>Fast UI (beta)</h2>
+  <label class="check"><input type="checkbox" data-key="fastUi"> Fast UI: a light, fast Home timeline of our own (For you / Following) in place of X's</label>
+  <label class="row">Theme
+    <select data-key="fastUiTheme">
+      <option value="auto">Same as X</option>
+      <option value="black">Lights Out</option>
+      <option value="dim">Dim</option>
+      <option value="light">Light</option>
+    </select>
+  </label>
+  <label class="check"><input type="checkbox" data-key="fastUiNativeButton"> "Native X" button in the Fast UI top bar</label>
+  <label class="check"><input type="checkbox" data-key="fastUiKeys"> <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> switches between Fast UI and X's own page</label>
+  <p class="hint">Everything else (notifications, messages, settings, search, profiles) stays X's own page. If X changes something Fast UI cannot read, X's own page comes back by itself. <code>?xbb=native</code> in any URL opens X's own page; "Fast UI" in X's sidebar switches back.</p>
+</section>
+<section>
   <h2>Page</h2>
   <label class="check"><input type="checkbox" data-key="lighterPage"> Lighter page (no backdrop blur effects)</label>
   <label class="check"><input type="checkbox" data-key="settingsGear"> Settings entry in X's sidebar</label>

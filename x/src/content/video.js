@@ -18,7 +18,11 @@
 
   // ---------- user gestures (to tell your clicks from X's own play/pause calls) ----------
   let lastGesture = 0, lastTarget = null;
-  const onGesture = e => { lastGesture = Date.now(); lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target; };
+  // The focused element, through open shadow roots (Fast UI's videos live in one; document.activeElement is its host)
+  const deepActive = () => { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a; };
+  // The element really clicked: an event from inside a shadow root reaches window retargeted to its host
+  const origin = e => { try { const p = e.composedPath && e.composedPath(); if (p && p[0] && p[0].nodeType === 1) return p[0]; } catch {} return e.target; };
+  const onGesture = e => { lastGesture = Date.now(); lastTarget = e.type === 'keydown' ? (deepActive() || e.target) : origin(e); };
   ['pointerdown', 'keydown', 'touchstart', 'focusin'].forEach(t => addEventListener(t, onGesture, true));
   // In Firefox's content realm (Violentmonkey on nonce-CSP sites like x.com), Xray wrappers bypass
   // page-world prototype patches and hide expando properties set by main-world.js.
@@ -29,7 +33,7 @@
   const pageCall = (v, k) => performance.now() - (pageEl(v)[k] || 0) < 500;
   // The bar's own play: no play() came before it, and using the bar focuses the video (Chrome fires no
   // other event at all, Firefox a focus event). A video the browser restarts by itself is not focused.
-  const barPlay = v => !pageCall(v, '_xbbPagePlay') && document.activeElement === v;
+  const barPlay = v => !pageCall(v, '_xbbPagePlay') && deepActive() === v;
   const playerOf = v => v.closest(PLAYER) || v.parentElement?.parentElement;
   const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = playerOf(v); return !!p && p !== document.body && p !== document.documentElement && p.contains(t); };
   const userOn = v => Date.now() - lastGesture <= 1500 && on(v, lastTarget);
@@ -109,7 +113,7 @@
     if (s.videoMode === 'default') { setPick(null); return; }
     const list = [];
     for (const v of [...score.keys()]) {
-      if (!v.isConnected) { score.delete(v); if (pick === v) pick = null; if (chosen === v) chosen = null; continue; }
+      if (!v.isConnected) { score.delete(v); shadowed.delete(v); if (pick === v) pick = null; if (chosen === v) chosen = null; continue; }
       if (managed(v)) list.push(v);
     }
     // gone from the screen: a pause of yours no longer counts, and offscreen videos pause
@@ -145,7 +149,7 @@
   function schedule(ms = 120) { clearTimeout(timer); timer = setTimeout(evaluate, ms); }
 
   // ---------- events ----------
-  document.addEventListener('play', e => {
+  const onPlay = e => {
     const v = e.target, s = XBB.settings;
     if (!managed(v)) return;
     if (away() && !userOn(v)) { quiet(v); return; }   // X restarting something while you are away
@@ -161,18 +165,21 @@
       evaluate();
       if (v !== pick && !v.paused) quiet(v);
     }
-  }, true);
-  document.addEventListener('pause', e => {
+  };
+  const onPause = e => {
     const v = e.target;
     if (!managed(v) || v.ended || performance.now() - (v._xbbQuiet || 0) < 400) return;
     // Paused by you if you clicked the player, or if the browser's own controls did it: those, and the media
     // keys, never call pause(), so no page call came before this pause. X's own pauses always do.
     if (userOn(v) || !pageCall(v, '_xbbPagePause')) { userPaused.add(v); if (chosen === v) chosen = null; }
-  }, true);
-  document.addEventListener('ended', e => {
+  };
+  const onEnded = e => {
     if (e.target === chosen) chosen = null;
     if (e.target === pick) schedule(0);
-  }, true);
+  };
+  document.addEventListener('play', onPlay, true);
+  document.addEventListener('pause', onPause, true);
+  document.addEventListener('ended', onEnded, true);
 
   const io = new IntersectionObserver(entries => {
     for (const e of entries) {
@@ -183,17 +190,68 @@
   }, { threshold: [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1] });
 
   const seen = new WeakSet();
-  function scan() {
-    document.querySelectorAll('video').forEach(v => {
-      if (seen.has(v) || ours(v)) return;
-      if (v.loop) v.setAttribute('data-xbb-gif', '');   // X loops GIFs itself; a real video only loops by our setting, applied below
-      seen.add(v);
-      if (!managed(v)) return;
-      io.observe(v);
-      score.set(v, score.get(v) || 0);
-      prep(v);
-    });
+  function watch(v) {
+    if (seen.has(v) || ours(v)) return false;
+    if (v.loop) v.setAttribute('data-xbb-gif', '');   // X loops GIFs itself; a real video only loops by our setting, applied below
+    seen.add(v);
+    if (!managed(v)) return false;
+    io.observe(v);
+    score.set(v, score.get(v) || 0);
+    prep(v);
+    return true;
   }
+  function scan() {
+    document.querySelectorAll('video').forEach(watch);
+  }
+
+  // ---------- videos in a shadow root (Fast UI) ----------
+  // document.querySelectorAll cannot see into a shadow root, and media events are not composed: they never
+  // reach the document listeners above. Fast UI hands its videos over here, so they follow exactly the same
+  // rules (one at a time, offscreen pause, pause when away, your pause sticks). The page-world half
+  // (main-world.js) is told through a composed event, so its audio rules reach them too.
+  const shadowed = new Set();
+  XBB.videoPolicy = {
+    add(v) {
+      if (!(v instanceof HTMLVideoElement)) return false;
+      if (!watch(v)) return false;
+      if (v.getRootNode() !== document && !shadowed.has(v)) {
+        shadowed.add(v);
+        v.addEventListener('play', onPlay, true);
+        v.addEventListener('pause', onPause, true);
+        v.addEventListener('ended', onEnded, true);
+        try { v.dispatchEvent(new CustomEvent('xbb-video-own', { bubbles: true, composed: true })); } catch {}
+      }
+      schedule(0);
+      return true;
+    },
+    remove(v) {
+      if (!v) return;
+      io.unobserve(v);
+      score.delete(v);
+      seen.delete(v);
+      userPaused.delete(v);
+      if (pick === v) setPick(null);
+      if (chosen === v) chosen = null;
+      if (shadowed.delete(v)) {
+        v.removeEventListener('play', onPlay, true);
+        v.removeEventListener('pause', onPause, true);
+        v.removeEventListener('ended', onEnded, true);
+      }
+    },
+    // Before a node that holds videos is thrown away or reused: stop them and drop what they loaded
+    destroy(root) {
+      if (!root) return;
+      const list = root instanceof HTMLVideoElement ? [root] : [...root.querySelectorAll('video')];
+      for (const v of list) {
+        XBB.videoPolicy.remove(v);
+        try { quiet(v); } catch {}
+        v.removeAttribute('src');
+        v.querySelectorAll('source').forEach(s => s.remove());
+        try { v.load(); } catch {}
+      }
+    },
+    evaluate: () => schedule(0)
+  };
   XBB.onDomChange(scan, 200);
   let lastRun = 0;
   addEventListener('scroll', () => {

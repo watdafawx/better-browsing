@@ -26,12 +26,16 @@ const SHARED = ['userscript/run-main.js', 'userscript/store.js', 'userscript/pan
 // Adding a site: add userscript/icons/<site>.svg.
 const iconOf = key => 'data:image/svg+xml;base64,' + fs.readFileSync(`userscript/icons/${key}.svg`).toString('base64');
 
-// [main-world files, content files, css files] from a manifest, as paths under srcDir
+// [main-world files, content files, css files, shadow css files] from a manifest, as paths under srcDir.
+// `shadow_css` (a top-level manifest key) is CSS for a shadow root: it is not added to the page as a <style>,
+// it becomes the string `<ns>.FAST_CSS`, set right after defaults.js, for the code that builds that root.
 function scripts(man, srcDir) {
   const cs = man.content_scripts, files = list => [...new Set(list)].map(f => `${srcDir}/${f}`);
   return [files(cs.filter(c => c.world === 'MAIN').flatMap(c => c.js)), files(cs.filter(c => c.world !== 'MAIN').flatMap(c => c.js)),
-    files(cs.flatMap(c => c.css || []))];
+    files(cs.flatMap(c => c.css || [])), files(man.shadow_css || [])];
 }
+// Comments and runs of whitespace out: enough for CSS that only ever lives in a JS string
+const minCss = css => css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').replace(/\s*([{};>])\s*/g, '$1').trim();
 const join = files => files.map(f => `// ---- ${f} ----\n${read(f)}`).join('\n\n');
 const style = (id, files) => `(() => { const s = document.createElement('style'); s.id = '${id}'; s.textContent = ${JSON.stringify(files.map(read).join('\n'))}; (document.head || document.documentElement).append(s); })();`;
 // The settings form: popup.html from <header> to </main> (icon inlined), popup.css for a shadow root
@@ -46,8 +50,9 @@ function panel(srcDir) {
 
 // One site's code. `api`: code that sets <ns>.api, inserted right after defaults.js.
 // `extra`: constants the site's code uses. `main`: wraps the runMain call. `panelJs`: makes the panel.
-function siteCode({ srcDir, manifest, api, extra = '', main = s => s, panelJs, cssId }) {
-  const [mainFiles, content, css] = scripts(JSON.parse(read(manifest)), srcDir);
+function siteCode({ srcDir, manifest, api, extra = '', main = s => s, panelJs, cssId, ns }) {
+  const [mainFiles, content, css, shadowCss] = scripts(JSON.parse(read(manifest)), srcDir);
+  const shadow = shadowCss.length ? `\n${ns}.FAST_CSS = ${JSON.stringify(minCss(shadowCss.map(read).join('\n')))};` : '';
   const p = panel(srcDir);
   const i = content.findIndex(f => f.endsWith('/defaults.js'));
   return `
@@ -56,7 +61,7 @@ const PANEL_CSS = ${JSON.stringify(p.css)};
 ${extra}
 ${main(`runMain(() => {\n${join(mainFiles)}\n});`)}
 ${join(content.slice(0, i + 1))}
-${api}
+${api}${shadow}
 ${join([...content.slice(i + 1), `${srcDir}/popup/popup.js`])}
 ${panelJs}
 ${style(cssId, css)}`;
@@ -101,7 +106,7 @@ ${read('src/vendor/hls.min.js').replace(/^\/\/# sourceMappingURL=.*$/m, '')}
     test: `host === 'x.com'`,
     about: 'Browser video controls with one video playing at a time, sound on, one-click retweet, Like + Retweet and copy link for Discord on X. Settings: the sidebar gear or Alt+W.',
     code: () => siteCode({
-      srcDir: 'x/src', manifest: 'x/manifest.base.json', cssId: 'xbb-css',
+      srcDir: 'x/src', manifest: 'x/manifest.base.json', cssId: 'xbb-css', ns: 'XBB',
       api: `XBB.api = bbStore('xbb-userscript-settings');`,
       panelJs: `XBB.openSettings = bbPanel({ cls: 'xbb-root xbb-settings', html: PANEL_HTML, css: PANEL_CSS, mount: root => XBB.mountSettings(root) });`
     })

@@ -1,6 +1,6 @@
 {
   "name": "X Better Browsing",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "X part of the userscript. This file lists the scripts build.js puts into dist/better-browsing.user.js, in load order, and holds the X part's version.",
   "content_scripts": [
     {
@@ -18,11 +18,21 @@
         "content/api.js",
         "content/video.js",
         "content/tweet.js",
-        "content/settings.js"
+        "content/settings.js",
+        "content/fast/flag.js",
+        "content/fast/store.js",
+        "content/fast/vlist.js",
+        "content/fast/render.js",
+        "content/fast/shell.js",
+        "content/fast/views/home.js",
+        "content/fast/router.js"
       ],
       "css": [
         "content/content.css"
       ]
     }
+  ],
+  "shadow_css": [
+    "content/fast/fast.css"
   ]
 }

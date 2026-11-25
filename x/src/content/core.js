@@ -7,7 +7,7 @@
   let snap = null;
   try { snap = JSON.parse(localStorage.getItem(SNAP) || 'null'); } catch {}
   XBB.settings = XBB.mergeSettings(snap);
-  XBB.onSettings = fn => { listeners.add(fn); fn(XBB.settings); };
+  XBB.onSettings = fn => { listeners.add(fn); fn(XBB.settings); return () => listeners.delete(fn); };
 
   const publish = s => {
     XBB.settings = s;

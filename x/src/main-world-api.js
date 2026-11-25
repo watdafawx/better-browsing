@@ -506,5 +506,19 @@
     new MutationObserver(() => { if (tapOn()) { getRequire(); drainSoon(); } }).observe(root, { attributes: true, attributeFilter: [TAP_ATTR] });
   } catch {}
 
+  // X's router moves with history.pushState/replaceState, which fire no event: tell the content script
+  // (Fast UI takes Home over the moment X navigates there). xbb-nav  page -> content  { path }
+  try {
+    for (const k of ['pushState', 'replaceState']) {
+      const orig = history[k];
+      if (typeof orig !== 'function') continue;
+      history[k] = function () {
+        const r = orig.apply(this, arguments);
+        try { emit('xbb-nav', { path: location.pathname, kind: k }); } catch {}
+        return r;
+      };
+    }
+  } catch {}
+
   root.setAttribute('data-xbb-api-main', '1');
 })();

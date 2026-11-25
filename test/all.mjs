@@ -21,6 +21,8 @@ const runs = [
   ['X, Firefox', ...node('test/x-offline.mjs'), { BROWSER: 'firefox' }],
   ['X, Chromium, Fast UI API', ...node('test/x-api-offline.mjs')],
   ['X, Firefox, Fast UI API', ...node('test/x-api-offline.mjs'), { BROWSER: 'firefox' }],
+  ['X, Chromium, Fast UI Home', ...node('test/x-fast-home-offline.mjs')],
+  ['X, Firefox, Fast UI Home', ...node('test/x-fast-home-offline.mjs'), { BROWSER: 'firefox' }],
   ['Reddit, Chromium', ...node('test/offline.mjs')],
   ['Reddit, Firefox', ...node('test/offline.mjs'), { BROWSER: 'firefox' }],
   ['Instagram, Chromium', ...node('test/instagram-offline.mjs')],

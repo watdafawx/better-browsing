@@ -17,6 +17,7 @@
     "test:instagram": "node build.js && node test/instagram-offline.mjs",
     "test:x": "node build.js && node test/x-offline.mjs",
     "test:x:api": "node build.js && node test/x-api-offline.mjs",
+    "test:x:fast": "node build.js && node test/x-fast-home-offline.mjs",
     "test:pinterest": "node build.js && node test/pinterest-offline.mjs",
     "test:headers": "node build.js && node test/headers.mjs",
     "test:double": "node build.js && node test/double-install.mjs",

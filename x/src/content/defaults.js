@@ -17,8 +17,11 @@ XBB.DEFAULTS = {
   embedLink: true,            // link button: copy a tweet link that Discord shows as an embed
   embedHost: 'vxtwitter.com', // embed-fixer domain used in that link
 
-  // Fast UI engine (opt-in, no settings control yet): read X's own GraphQL responses and call its API
+  // Fast UI (opt-in, beta): our own light Home timeline over X's hidden app (x/FAST-UI-PLAN.md)
   fastUi: false,
+  fastUiTheme: 'auto',        // auto (follows X's own theme) | black (Lights Out) | dim | light
+  fastUiNativeButton: true,   // "Native X" button in the Fast UI top bar (Alt+Shift+X works either way)
+  fastUiKeys: true,           // Alt+Shift+X switches between Fast UI and X's own page
 
   // Page
   lighterPage: true,          // no backdrop blur

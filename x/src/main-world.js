@@ -64,9 +64,12 @@
 
   // Videos that had to start muted because the browser blocked audible autoplay; unmute on first interaction.
   const waiting = new Set();
+  // Through open shadow roots (Fast UI's videos live in one): window sees such events retargeted to the host
+  const deepActive = () => { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a; };
+  const origin = e => { try { const p = e.composedPath && e.composedPath(); if (p && p[0] && p[0].nodeType === 1) return p[0]; } catch {} return e.target; };
   const onGesture = e => {
     lastGesture = Date.now();
-    lastTarget = e.type === 'keydown' ? (document.activeElement || e.target) : e.target;
+    lastTarget = e.type === 'keydown' ? (deepActive() || e.target) : origin(e);
     if (e.type === 'focusin' || cfg.mode !== 'volume' || !level()) return;
     for (const v of waiting) {
       if (!v.isConnected || userAudio(v)) { waiting.delete(v); continue; }
@@ -161,19 +164,20 @@
   // list: x.com there may play with sound on a fresh page, before any click, and holding it for a click
   // kept it muted anyway.
   const canSound = el => { try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {} return activated(); };
-  document.addEventListener('playing', e => {
+  const onPlaying = e => {
     const v = e.target;
     if (!active(v)) return;
     if (v.muted && cfg.mode === 'volume' && !canSound(v)) { waiting.add(v); return; }
     waiting.delete(v);
     applyAudio(v);
-  }, true);
+  };
+  document.addEventListener('playing', onPlaying, true);
 
   // Safety net: a playing video that is muted though the user never muted it gets our level back.
   // Only where the browser would let it make sound: unmuting before that pauses the video.
   setInterval(() => {
     if (cfg.mode !== 'volume' || !level() || document.hidden) return;
-    for (const v of document.querySelectorAll('video')) {
+    for (const v of [...document.querySelectorAll('video'), ...own]) {
       if (v.paused || !v.muted || userAudio(v) || !active(v) || !canSound(v)) continue;
       waiting.delete(v);
       setVol(v, level());
@@ -184,7 +188,7 @@
   // The browser's own controls change volume/mute without going through the setters above, and send the
   // page no click either: a change that is neither our level nor a page write is the user's. Keep it for
   // this video, and a volume they set (not a mute) becomes the level for the videos after it.
-  document.addEventListener('volumechange', e => {
+  const onVolume = e => {
     const v = e.target;
     if (!active(v) || userAudio(v) || isMine(v) || !mine.has(v)) return;
     const want = cfg.mode === 'muted' ? null : level();
@@ -194,5 +198,19 @@
     markUserAudio(v);
     waiting.delete(v);
     if (!v.muted && v.volume > 0 && cfg.mode !== 'muted') sessionVol = v.volume;
+  };
+  document.addEventListener('volumechange', onVolume, true);
+
+  // Fast UI's videos sit in a shadow root, where media events never reach the document: video.js announces
+  // each one with a composed event, and the same listeners go on the element itself.
+  const own = new Set();
+  document.addEventListener('xbb-video-own', e => {
+    let v = null;
+    try { v = e.composedPath()[0]; } catch {}
+    if (!(v instanceof HTMLVideoElement) || own.has(v)) return;
+    for (const x of own) if (!x.isConnected) own.delete(x);
+    own.add(v);
+    v.addEventListener('playing', onPlaying, true);
+    v.addEventListener('volumechange', onVolume, true);
   }, true);
 })();

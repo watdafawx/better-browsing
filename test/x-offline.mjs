@@ -224,7 +224,7 @@ const click = async (page, sel) => { const b = await page.locator(sel).boundingB
   await page.click('nav .xbb-gear');
   await page.waitForTimeout(300);
   const panel = await page.evaluate(() => { const x = document.querySelector('.xbb-settings')?.shadowRoot; return { inputs: x?.querySelectorAll('[data-key]').length, vol: x?.querySelector('[data-key="videoVolume"]')?.value, host: x?.querySelector('[data-key="embedHost"]')?.value }; });
-  check('gear opens the settings panel', panel.inputs === 13 && panel.vol === '40' && panel.host === 'vxtwitter.com', panel);
+  check('gear opens the settings panel', panel.inputs === 17 && panel.vol === '40' && panel.host === 'vxtwitter.com', panel);
   await page.locator('.xbb-settings [data-key="videoLoop"]').click();
   await page.waitForTimeout(300);
   check('clicks inside the panel keep it open and save', await page.evaluate(() => !!document.querySelector('.xbb-settings') && JSON.parse(localStorage.getItem('xbb-userscript-settings')).settings.videoLoop === true), null);

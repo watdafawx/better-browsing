@@ -7,6 +7,7 @@ Four userscripts, one per site (`dist/better-browsing-<reddit|instagram|x|pinter
 - `npm run build`: writes every bundle and its `.meta.js` to `dist/` and prints each version and size.
 - `npm test`, `npm run test:instagram`, `npm run test:x`, `npm run test:pinterest`: build, then the offline Playwright test of that site (`test/offline.mjs`, `test/instagram-offline.mjs`, `test/x-offline.mjs`, `test/pinterest-offline.mjs`) against that site's own bundle (`US_FILE=dist/….user.js` picks another, e.g. the combined one). Needs `npm install` and `npx playwright install chromium firefox` once. `BROWSER=firefox` runs a test in Firefox (Reddit and Instagram: only their second part; the first always runs in Chromium).
 - `npm run test:x:api` (`test/x-api-offline.mjs`): the X Fast UI engine (harvester, fetch/XHR tap, bridge, circuit breaker, model) against a fake webpack runtime, a fake GraphQL backend and payload fixtures; `BROWSER=firefox` for Firefox. Part of `test:all`.
+- `npm run test:x:fast` (`test/x-fast-home-offline.mjs`): the X Fast UI shell and Home view (M2) on a mock x.com whose fake X app fetches its own HomeTimeline: mount/hide, 0 extra boot requests, tabs, pagination, card shapes, scroll anchor, video policy, actions with rollback, every escape hatch, breaker and schema guard, the 250-row DOM cap, CPU guards; `BROWSER=firefox` for Firefox. Part of `test:all`.
 - `npm run test:headers` (`test/headers.mjs`, no browser): each @match host is served by exactly one per-site bundle and by the combined one, nothing else (old.reddit.com) is, each `.meta.js` is its `.user.js` header with the same @version, update URLs and header keys are right.
 - `npm run test:double` (`test/double-install.mjs`): the combined and a per-site bundle on the same fixture page, both orders; the site runs once, the hand-over and the notice work.
 - `npm run test:all`: build, headers, double install, every site in Chromium and Firefox against its own bundle, X once against the combined one (`test/all.mjs`). Run it before a release. It includes the CPU guards in `test/lib/perf.mjs` (nothing changes on an idle page by itself; the script adds little work on a page that keeps changing); keep them passing when adding a subscriber, timer or observer.
@@ -103,6 +104,17 @@ Same shape, global `XBB`. `x/README.md` describes the features and how they work
 - **Circuit breaker** (`XBB.gql.breaker`, per operation): 400/403/404, a missing queryId, or a 200 holding only a GraphQL validation error opens it (`XBB.gql.getDrift()` has what failed); five transient failures in a row open it too; 401/429 do not. UI code asks `breaker.ok(op)` and falls back to native X when it is open. It closes by itself when a tapped X request shows another queryId, after a cooldown (half-open probe), or on `reset`.
 - **Model** (`XBB.model`): pure and defensive, never throws. A retweet normalizes to the original tweet with `retweetedBy`; long-form text comes from `note_tweet`; `extractTimeline` finds `instructions` at any depth and skips promoted entries (`keepPromoted` keeps them marked). Keep every new field read behind the safe getters, and add a malformed-payload case to `test/x-api-offline.mjs` for it.
 - `x-client-transaction-id` is best effort: `window.__xbbApiTxid(path, method)` if supplied, else a conservative probe for a pure generator in modules that mention the header; calls go out without it otherwise.
+
+### X Fast UI, Milestone 2 (shell + Home)
+
+`x/src/content/fast/`: flag.js (who owns the page), store.js, vlist.js, render.js, shell.js + fast.css (`build.js` inlines the manifest's `shadow_css` as `XBB.FAST_CSS`), views/home.js, router.js.
+
+- `<html data-xbb-fast="home">` while Fast UI owns the route: content.css hides `#react-root` (X keeps running underneath, unpainted) and shows `<xbb-fast>` (open shadow root). `"native"` = the user escaped (Native X button, Alt+Shift+X, `?xbb=native`); absent = not ours. Links to other routes go to X's router by `pushState` + a `popstate` event (`XBB.fast.navigateX`), never a reload.
+- The Home view renders from the passive tap (X's own HomeTimeline response): booting costs 0 requests. Only Following, pagination and the 5 s fallback call `XBB.gql.call`.
+- A drift/missing-op breaker on HomeTimeline/HomeLatestTimeline, a 200 with no timeline (schema guard), or a mount error fails the route hard (`XBB.fast.fail`, sessionStorage `xbb-fast-broken`): X gets Home back for the session. Three soft failures in 5 min do the same.
+- Our videos live in a shadow root, where media events never reach document listeners: `XBB.videoPolicy.add(v)` after the node is connected, `destroy(node)` before it is pooled. Gesture checks use `composedPath()[0]` and the deep active element.
+- Shadow-root attributes must not reuse names video.js puts on videos (`data-xbb-native` is a video mark; the shell button is `data-xbb-to-native`).
+- Text from X goes in as text nodes only; icons are our own constant markup.
 
 ## Pinterest (`pinterest/`)
 

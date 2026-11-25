@@ -19,8 +19,11 @@
     const m = location.pathname.match(/^\/([^/]+)\/status\/(\d+)/);   // a tweet's own page, no date link found
     return m ? `/${m[1]}/status/${m[2]}` : null;
   }
-  XBB.embedUrl = path => `https://${embedHost()}${path}`;
+  // XBB.embedUrl('/alice/status/1') or XBB.embedUrl('alice', '1'): the link for Discord, on the embed host
+  // the user picked (Fast UI's copy button uses the same one)
+  XBB.embedUrl = (a, id) => id ? `https://${embedHost()}/${String(a).replace(/^@/, '')}/status/${id}` : `https://${embedHost()}${a}`;
 
+  XBB.copyText = copy;
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); return true; } catch {}
     const ta = h('textarea', { style: { position: 'fixed', opacity: '0' } });
