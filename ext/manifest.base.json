@@ -1,6 +1,6 @@
 {
   "name": "Better Browsing",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Better Browsing for Reddit, Instagram, X and Pinterest in one extension: viewers, video sound and autoplay control, X Fast UI.",
   "gecko": {
     "id": "better-browsing@watdafawx",

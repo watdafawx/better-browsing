@@ -143,7 +143,7 @@ function build() {
     }),
     { matches: ['https://*.redgifs.com/ifr/*'], all_frames: true, run_at: 'document_start', js: ['reddit/redgifs.js'] }
   ];
-  const host_permissions = [...new Set([...KEYS.flatMap(k => SITES[k].match), 'https://api.x.com/*', 'https://abs.twimg.com/*', 'https://s.pinimg.com/*'])];
+  const host_permissions = [...new Set([...KEYS.flatMap(k => SITES[k].match), 'https://api.x.com/*', 'https://abs.twimg.com/*', 'https://s.pinimg.com/*', 'https://*.redgifs.com/*'])];
   if (DEV) host_permissions.push('http://127.0.0.1:47910/*');
   const manifest = {
     manifest_version: 3,

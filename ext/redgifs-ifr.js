@@ -4,6 +4,7 @@
    keyboard shortcuts, and a native download button. Controlled by Reddit's `redgifsTweaks` setting (default on). */
 (() => {
   if (window === window.top) return;   // only embedded /ifr/ frames, never top-level redgifs.com
+  document.documentElement.dataset.bbRg = '1';
   const api = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
   const PREF_KEY = 'bb:redgifs:prefs';
   const REDDIT_KEY = 'bb:mirror:settings:reddit';
