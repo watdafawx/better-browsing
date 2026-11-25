@@ -24,31 +24,36 @@
   const homeOf = key => (SITES.find(s => s.key === key) || {}).home || '';
 
   // ---- DNR rule registry. Rule ID ranges: X 1000-1099, Pinterest 2000-2099, Reddit 3000, Instagram 4000. ----
-  const blockRule = (id, urlFilter, initiatorDomains, resourceTypes) => ({
-    id, priority: 1, action: { type: 'block' },
-    condition: Object.assign({ urlFilter, initiatorDomains }, resourceTypes ? { resourceTypes } : {})
-  });
+  // Uses session rules (`updateSessionRules`) with `excludedTabIds` so escaping to Native X / Native Pinterest
+  // in one tab leaves every other tab of that site in Zero-JS mode.
+  const blockRule = (id, urlFilter, initiatorDomains, resourceTypes, excludedTabIds) => {
+    const condition = Object.assign({ urlFilter, initiatorDomains }, resourceTypes ? { resourceTypes } : {});
+    if (excludedTabIds && excludedTabIds.length) condition.excludedTabIds = excludedTabIds;
+    return { id, priority: 1, action: { type: 'block' }, condition };
+  };
   const DNR = {
     x: {
       ids: [1001, 1002, 1003],
-      rules: [
-        blockRule(1001, '||abs.twimg.com/responsive-web/client-web/', ['x.com'], ['script']),
-        blockRule(1002, '||api.x.com/live_pipeline/', ['x.com']),
-        blockRule(1003, '||ingest.us.sentry.io/', ['x.com'])
+      build: excl => [
+        blockRule(1001, '||abs.twimg.com/responsive-web/client-web/', ['x.com'], ['script'], excl),
+        blockRule(1002, '||api.x.com/live_pipeline/', ['x.com'], null, excl),
+        blockRule(1003, '||ingest.us.sentry.io/', ['x.com'], null, excl)
       ]
     },
-    // Pinterest Fast UI (Zero-JS): its app bundle and the bundle's CSS, only when a Pinterest page asks for them
+    // Pinterest Fast UI (Zero-JS): `pinterest.com` covers www.pinterest.com and all regional subdomains (de., uk., …)
     pinterest: {
       ids: [2001, 2002, 2003],
-      rules: [
-        blockRule(2001, '||s.pinimg.com/webapp/', ['www.pinterest.com', 'pinterest.com'], ['script']),
-        blockRule(2002, '||s.pinimg.com/webapp/', ['www.pinterest.com', 'pinterest.com'], ['stylesheet'])
+      build: excl => [
+        blockRule(2001, '||s.pinimg.com/webapp/', ['pinterest.com'], ['script'], excl),
+        blockRule(2002, '||s.pinimg.com/webapp/', ['pinterest.com'], ['stylesheet'], excl)
       ]
     },
-    reddit: { ids: [], rules: [] },
-    instagram: { ids: [], rules: [] }
+    reddit: { ids: [], build: () => [] },
+    instagram: { ids: [], build: () => [] }
   };
   const blockKey = site => 'bb:block:' + site;
+  const exclKey = site => 'bb:excl:' + site;
+  const sess = api.storage && api.storage.session ? api.storage.session : api.storage.local;
 
   function devLog(level, args, meta) {
     if (!DEV) return;
@@ -61,21 +66,73 @@
     } catch {}
   }
 
-  async function applyBlock(site, on) {
+  async function getExcl(site) {
+    try { const r = await sess.get(exclKey(site)); return Array.isArray(r[exclKey(site)]) ? r[exclKey(site)] : []; } catch { return []; }
+  }
+  async function setExcl(site, list) {
+    const clean = [...new Set(list.filter(n => typeof n === 'number' && n >= 0))];
+    try { await sess.set({ [exclKey(site)]: clean }); } catch {}
+    return clean;
+  }
+  async function syncRules(site, on, excl) {
     const d = DNR[site];
-    const blocking = !!(on && d && d.rules.length);
-    try { await api.storage.local.set({ [blockKey(site)]: blocking }); } catch {}
-    if (d && d.ids.length) {
-      try { await api.declarativeNetRequest.updateDynamicRules({ removeRuleIds: d.ids, addRules: blocking ? d.rules : [] }); }
-      catch (e) { devLog('error', ['DNR updateDynamicRules failed:', site, String(e)]); }
-    }
+    if (!d || !d.ids.length) return false;
+    const blocking = !!on;
+    const rules = blocking ? d.build(excl) : [];
+    const dnr = api.declarativeNetRequest;
+    try {
+      if (dnr.updateSessionRules) {
+        await dnr.updateSessionRules({ removeRuleIds: d.ids, addRules: rules });
+        // Clean up any legacy dynamic rules from pre-0.3.0 installs
+        if (dnr.updateDynamicRules) await dnr.updateDynamicRules({ removeRuleIds: d.ids }).catch(() => {});
+      } else if (dnr.updateDynamicRules) {
+        await dnr.updateDynamicRules({ removeRuleIds: d.ids, addRules: rules });
+      }
+    } catch (e) { devLog('error', ['DNR update failed:', site, String(e)]); }
     return blocking;
   }
   async function getBlock(site) {
     try { const r = await api.storage.local.get(blockKey(site)); return !!r[blockKey(site)]; } catch { return false; }
   }
-  // Restore every site's last state on worker start (the dynamic rules persist, but re-applying keeps them equal to the stored state)
-  (async () => { for (const site of Object.keys(DNR)) if (DNR[site].rules.length) await applyBlock(site, await getBlock(site)); })();
+  async function applyBlock(site, on, opts = {}) {
+    const d = DNR[site];
+    if (!d || !d.ids.length) return false;
+    const tabId = opts.tabId;
+    const tabOnly = opts.tabOnly && tabId != null && !on;
+    let excl = await getExcl(site);
+    if (tabOnly) {
+      // Unblock ONLY this tab; keep global blocking active for every other tab of this site
+      if (!excl.includes(tabId)) excl = await setExcl(site, [...excl, tabId]);
+      const globalOn = await getBlock(site);
+      await syncRules(site, globalOn, excl);
+      return false;
+    }
+    if (on && tabId != null && excl.includes(tabId)) {
+      excl = await setExcl(site, excl.filter(id => id !== tabId));
+    }
+    const blocking = !!on;
+    try { await api.storage.local.set({ [blockKey(site)]: blocking }); } catch {}
+    await syncRules(site, blocking, excl);
+    return blocking;
+  }
+  // Clean up closed tabs from excludedTabIds so session rules stay compact
+  if (api.tabs && api.tabs.onRemoved) {
+    api.tabs.onRemoved.addListener(async closedId => {
+      for (const site of Object.keys(DNR)) {
+        if (!DNR[site].ids.length) continue;
+        const excl = await getExcl(site);
+        if (!excl.includes(closedId)) continue;
+        const next = await setExcl(site, excl.filter(id => id !== closedId));
+        await syncRules(site, await getBlock(site), next);
+      }
+    });
+  }
+  // Restore every site's session rules on worker start
+  (async () => {
+    for (const site of Object.keys(DNR)) {
+      if (DNR[site].ids.length) await syncRules(site, await getBlock(site), await getExcl(site));
+    }
+  })();
 
   // ---- open a site's settings: new tab, then ask its content script once it has loaded ----
   async function openSiteSettings(site) {
@@ -103,17 +160,35 @@
       case 'bb-ext-get':
       case 'xbb-ext-get':
       case 'pin-ext-get':
-        getBlock(site).then(b => sendResponse({ ok: true, blocking: b, dev: DEV, buildId: BUILD_ID }));
+        Promise.all([getBlock(site), getExcl(site)]).then(([b, excl]) => {
+          const excluded = tabId != null && excl.includes(tabId);
+          sendResponse({ ok: true, blocking: b && !excluded, globalBlocking: b, dev: DEV, buildId: BUILD_ID });
+        });
         return true;
       case 'bb-ext-set':
       case 'xbb-ext-set':
       case 'pin-ext-set':
         (async () => {
-          const next = await applyBlock(site, !!msg.block);
-          devLog('info', ['[' + site + ']', 'DNR block ->', next, msg.reason || ''], { site, tab: tabId });
+          // Tab-scoped unblock when escaping to Native in one tab; global when enabling or explicitly global
+          const tabOnly = !msg.block && msg.scope !== 'global' && tabId != null && msg.reason !== 'need-learn';
+          const next = await applyBlock(site, !!msg.block, { tabId, tabOnly });
+          devLog('info', ['[' + site + ']', 'DNR block ->', next, tabOnly ? '(tab-only)' : '(global)', msg.reason || ''], { site, tab: tabId });
           sendResponse({ ok: true, blocking: next });
           if (msg.reload && tabId != null) {
             try { if (msg.url) await api.tabs.update(tabId, { url: msg.url }); else await api.tabs.reload(tabId); } catch {}
+          }
+        })();
+        return true;
+      case 'bb-download':
+        (async () => {
+          try {
+            const u = new URL(String(msg.url || ''));
+            if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('bad protocol');
+            if (!api.downloads || !api.downloads.download) throw new Error('downloads API unavailable');
+            const id = await api.downloads.download({ url: u.href, filename: String(msg.filename || 'download').replace(/^[\\/]+/, ''), saveAs: false });
+            sendResponse({ ok: true, id });
+          } catch (e) {
+            sendResponse({ ok: false, error: String(e) });
           }
         })();
         return true;

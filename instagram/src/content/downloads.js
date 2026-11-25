@@ -15,8 +15,14 @@
       .replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').replace(/^[._ ]+|[. ]+$/g, '') || 'instagram';
     return `${base}.${ext}`;
   }
-  // Fetch as a blob so the browser saves it under our name; if the CDN refuses, open it instead.
+  // Extension build: use browser.downloads API (no CORS / Blob RAM spike); userscript or fallback: fetch Blob.
   async function save(url, name) {
+    if (IGB.ext && IGB.ext.isExt && IGB.ext.send) {
+      try {
+        const res = await IGB.ext.send({ type: 'bb-download', url, filename: name });
+        if (res && res.ok) return;
+      } catch {}
+    }
     try {
       const r = await fetch(url, { credentials: 'omit' });
       if (!r.ok) throw new Error('HTTP ' + r.status);

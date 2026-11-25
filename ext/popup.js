@@ -69,5 +69,43 @@
     const status = await wrap(api.tabs.sendMessage(tab.id, { type: 'bb-status' }));
     render({ key: site.key, status });
   }
+  // Export / Import all 4 sites' mirrored settings + shared Hopper themes & transparency
+  const ioMsg = $('ioMsg');
+  const sayIo = t => { if (ioMsg) ioMsg.textContent = t; };
+  const expBtn = $('exportBtn'), impBtn = $('importBtn'), impFile = $('importFile');
+  if (expBtn) expBtn.onclick = async () => {
+    const keys = [...SITES.map(s => 'bb:mirror:settings:' + s.key), 'bb:mirror:shared'];
+    const data = (await wrap(api.storage.local.get(keys))) || {};
+    const out = { v: 1, exportedAt: new Date().toISOString(), settings: {}, shared: data['bb:mirror:shared'] || null };
+    for (const s of SITES) { const m = data['bb:mirror:settings:' + s.key]; if (m && m.raw) out.settings[s.key] = m.raw; }
+    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+    const u = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: u, download: 'better-browsing-settings.json' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 30000);
+    sayIo('Exported ' + Object.keys(out.settings).length + ' site(s)');
+  };
+  if (impBtn && impFile) {
+    impBtn.onclick = () => impFile.click();
+    impFile.onchange = async () => {
+      const f = impFile.files && impFile.files[0];
+      impFile.value = '';
+      if (!f) return;
+      try {
+        const j = JSON.parse(await f.text());
+        if (!j || j.v !== 1 || typeof j.settings !== 'object') throw new Error('Invalid backup file');
+        const now = Date.now(), patch = {};
+        let n = 0;
+        for (const s of SITES) {
+          const raw = j.settings[s.key];
+          if (typeof raw === 'string' && raw.length) { JSON.parse(raw); patch['bb:mirror:settings:' + s.key] = { v: 1, ts: now, importedAt: now, raw }; n++; }
+        }
+        if (j.shared && typeof j.shared === 'object') patch['bb:mirror:shared'] = Object.assign({}, j.shared, { v: 1, ts: now });
+        await wrap(api.storage.local.set(patch));
+        sayIo('Imported ' + n + ' site(s) — reload open tabs');
+      } catch (e) { sayIo('Import failed: ' + (e.message || 'bad JSON')); }
+    };
+  }
+
   main();
 })();

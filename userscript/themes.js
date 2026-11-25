@@ -87,7 +87,7 @@ const bbThemes = (() => {
   };
   const writeCustom = list => {
     customCache = list;
-    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(list)); return true; } catch { return false; }
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(list)); window.dispatchEvent(new Event('bb-shared-changed')); return true; } catch { return false; }
   };
   // a stored/imported theme as a full, validated palette (or null)
   function sane(t) {
@@ -176,7 +176,7 @@ const bbThemes = (() => {
   }
   const TR_KEY = 'bb-fast-transparent';
   function isTransparent() { try { return localStorage.getItem(TR_KEY) === '1'; } catch { return false; } }
-  function setTransparent(on) { try { if (on) localStorage.setItem(TR_KEY, '1'); else localStorage.removeItem(TR_KEY); } catch {} }
+  function setTransparent(on) { try { if (on) localStorage.setItem(TR_KEY, '1'); else localStorage.removeItem(TR_KEY); window.dispatchEvent(new Event('bb-shared-changed')); } catch {} }
 
   const applied = new WeakMap();
   function apply(host, id, opts) {

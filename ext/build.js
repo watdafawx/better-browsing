@@ -102,7 +102,7 @@ const PANEL_CSS = ${JSON.stringify(p.css)};
 ${x.extra || ''}
 ${join(content.slice(0, i + 1))}
 ${s.api}${shadow}
-${join(['ext/bridge.js', ...(x.bridge ? [x.bridge] : [])])}
+${join(['ext/bridge.js', 'ext/mirror.js', ...(x.bridge ? [x.bridge] : [])])}
 ${join([...content.slice(i + 1), `${s.srcDir}/popup/popup.js`])}
 ${s.panelJs}
 })();\n`;
@@ -148,7 +148,7 @@ function build() {
     description: base.description,
     icons: { 16: 'icons/icon16.png', 32: 'icons/icon32.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' },
     action: { default_title: 'Better Browsing', default_popup: 'popup/popup.html', default_icon: { 16: 'icons/icon16.png', 32: 'icons/icon32.png' } },
-    permissions: ['declarativeNetRequest', 'scripting', 'storage', 'activeTab', ...(DEV ? ['alarms'] : [])],
+    permissions: ['declarativeNetRequest', 'scripting', 'storage', 'activeTab', 'downloads', ...(DEV ? ['alarms'] : [])],
     host_permissions,
     // Chrome MV3 rejects `background.scripts`; pass --firefox for a Firefox MV3 manifest
     background: FIREFOX ? { scripts: ['background.js'] } : { service_worker: 'background.js' },

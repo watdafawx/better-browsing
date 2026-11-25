@@ -13,6 +13,12 @@
 </header>
 <p id="note" hidden></p>
 <ul id="sites"></ul>
+<div class="io">
+  <button id="exportBtn" type="button">Export all</button>
+  <button id="importBtn" type="button">Import all</button>
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
+  <span id="ioMsg" class="iomsg" aria-live="polite"></span>
+</div>
 <footer>Settings open on the site itself: the gear in the page, or Alt+W.</footer>
 <script src="popup.js"></script>
 </body>
