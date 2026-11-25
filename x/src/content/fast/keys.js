@@ -152,7 +152,7 @@
       else if (feedKey) clear(); else done = false;
     } else if (k === '/') {
       const sh = fast.shell && fast.shell.get();
-      const inp = sh && sh.root.querySelector('.side .search input, form[data-xbb-search] input');
+      const inp = sh && (sh.root.querySelector('.sr-bar input') || sh.root.querySelector('.side .search input, form[data-xbb-search] input'));
       if (inp && !lb && !dr && inp.offsetParent !== null) { inp.focus(); try { inp.select(); } catch {} }
       else if (inp && !lb && !dr) { inp.focus(); }
       else done = false;

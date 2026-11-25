@@ -170,6 +170,13 @@ function backend(srv) {
         }
         if (p === '/i/api/1.1/friendships/create.json') { await new Promise(res => setTimeout(res, 300)); return await json(v1(U.alice)); }
         if (p === '/i/api/1.1/friendships/destroy.json') { await new Promise(res => setTimeout(res, 300)); return await json({ errors: [{ code: 200, message: 'Forbidden.' }] }, 403); }
+        if (p === '/i/api/1.1/search/typeahead.json') {
+          const qq = (q.query.q || '').trim();
+          return await json({
+            topics: [{ topic: qq + ' photos' }, { topic: qq + ' news' }],
+            users: [Object.assign(v1(U.carol), { ext_is_blue_verified: true }), v1(U.dave)]
+          });
+        }
         return await json({ errors: [{ code: 34 }] }, 404);
       }
       return await route.fulfill({ status: 200, contentType: 'text/html', body: PAGE });
@@ -393,16 +400,50 @@ const scrollToTweet = (page, id) => page.evaluate(id => new Promise(res => {
   check('profile: Back returns to Home where it was (no new HomeTimeline request, same scroll)', o.path === '/home' && o.attr === 'home' && firsts(srv, 'HomeTimeline').length === 1 && Math.abs(await sy(page) - y0) <= 2, { o, y: await sy(page), y0, home: firsts(srv, 'HomeTimeline').length });
 
   // ---------- search ----------
+  await page.locator(sr('.side .search input')).focus();
   await page.locator(sr('.side .search input')).fill('cats');
+  await waitFor(page, `${S}.querySelectorAll('.side .sr-drop .sr-opt').length >= 4`, 3000);
+  const ta = await page.evaluate(() => {
+    const sr = document.querySelector('xbb-fast').shadowRoot;
+    return {
+      opts: [...sr.querySelectorAll('.side .sr-drop .sr-opt')].map(el => el.textContent.trim()),
+      taHits: true
+    };
+  });
+  check('search: live typeahead dropdown shows query, topics and accounts from /i/api/1.1/search/typeahead.json', rest(srv, '/i/api/1.1/search/typeahead.json').length >= 1
+    && ta.opts.some(s => /Search for "cats"/.test(s)) && ta.opts.some(s => /cats photos/.test(s)) && ta.opts.some(s => /@carol/.test(s)), { ta, reqs: rest(srv, '/i/api/1.1/search/typeahead.json').map(q => q.query) });
   await page.keyboard.press('Enter');
   await waitFor(page, `document.documentElement.getAttribute('data-xbb-fast') === 'search'`);
   await waitTweet(page, '3001');
   await settle(page);
   o = await owner(page); v = await vd(page);
   const st = firsts(srv, 'SearchTimeline');
-  const bar = await page.evaluate(() => { const sr = document.querySelector('xbb-fast').shadowRoot; return { q: sr.querySelector('.sr-bar input')?.value, back: !!sr.querySelector('.sr-bar [data-sr="back"]'), tabs: [...sr.querySelectorAll('.feed.search-view [data-fd-tab]')].map(b => b.dataset.fdTab).join() }; });
+  const bar = await page.evaluate(() => { const sr = document.querySelector('xbb-fast').shadowRoot; return { q: sr.querySelector('.sr-bar input')?.value, back: !!sr.querySelector('.sr-bar [data-sr="back"]'), sideHidden: !!sr.querySelector('.side [data-xbb-search]')?.hidden, chips: sr.querySelectorAll('.sr-chips .sr-chip').length, tabs: [...sr.querySelectorAll('.feed.search-view [data-fd-tab]')].map(b => b.dataset.fdTab).join() }; });
   check('search: the sidebar search goes to /search?q=cats in Fast UI: SearchTimeline { rawQuery, count, querySource, product: Top }', o.path === '/search' && /q=cats/.test(o.search) && st.length === 1 && st[0].vars.rawQuery === 'cats' && st[0].vars.product === 'Top'
-    && st[0].vars.count === 20 && st[0].vars.querySource === 'typed_query' && v.rows === 10 && hits(srv, 'SearchTimeline').some(q => q.vars.cursor === 'S2') && bar.q === 'cats' && bar.back && bar.tabs === 'top,latest,people,media', { o, st, v, bar });
+    && st[0].vars.count === 20 && st[0].vars.querySource === 'typed_query' && v.rows === 10 && hits(srv, 'SearchTimeline').some(q => q.vars.cursor === 'S2') && bar.q === 'cats' && bar.back && bar.sideHidden && bar.chips >= 6 && bar.tabs === 'top,latest,people,media', { o, st, v, bar });
+  // quick filter chips toggle operators and preserve the active tab
+  await page.locator(sr('.feed.search-view [data-fd-tab="latest"]')).click();
+  await waitTweet(page, '3101');
+  await page.locator(sr('.sr-chips [data-sr-chip="f100"]')).click();
+  await waitFor(page, `/min_faves%3A100/.test(location.search)`);
+  await settle(page, 150);
+  const chip1 = await page.evaluate(() => { const sr = document.querySelector('xbb-fast').shadowRoot; return { search: location.search, q: sr.querySelector('.sr-bar input')?.value, f100: sr.querySelector('[data-sr-chip="f100"]')?.getAttribute('aria-pressed'), f1k: sr.querySelector('[data-sr-chip="f1k"]')?.getAttribute('aria-pressed') }; });
+  await page.locator(sr('.sr-chips [data-sr-chip="f1k"]')).click();
+  await waitFor(page, `/min_faves%3A1000/.test(location.search)`);
+  await settle(page, 150);
+  const chip2 = await page.evaluate(() => { const sr = document.querySelector('xbb-fast').shadowRoot; return { search: location.search, q: sr.querySelector('.sr-bar input')?.value, f100: sr.querySelector('[data-sr-chip="f100"]')?.getAttribute('aria-pressed'), f1k: sr.querySelector('[data-sr-chip="f1k"]')?.getAttribute('aria-pressed') }; });
+  check('search: filter chips toggle operators (mutually exclusive min_faves) and keep the active tab (Latest)', /f=live/.test(chip1.search) && chip1.q === 'cats min_faves:100' && chip1.f100 === 'true' && chip1.f1k === 'false'
+    && /f=live/.test(chip2.search) && chip2.q === 'cats min_faves:1000' && chip2.f100 === 'false' && chip2.f1k === 'true', { chip1, chip2 });
+  // recent searches saved in localStorage and shown when input is cleared
+  await page.locator(sr('.sr-bar .sr-clear')).click();
+  await waitFor(page, `${S}.querySelectorAll('.sr-bar .sr-drop .sr-opt').length >= 1`, 2000);
+  const rec = await page.evaluate(() => [...document.querySelector('xbb-fast').shadowRoot.querySelectorAll('.sr-bar .sr-drop .sr-opt')].map(e => e.textContent.trim()));
+  check('search: recent searches saved and shown when the box is cleared', rec.includes('cats') && rec.includes('cats min_faves:1000'), rec);
+  await page.keyboard.press('Escape');
+  // go back to plain "cats" search for the remaining tab checks
+  await page.evaluate(() => XBB.fast.go('/search?q=cats&src=typed_query'));
+  await waitFor(page, `location.search === '?q=cats&src=typed_query'`);
+  await waitTweet(page, '3001');
   await page.locator(sr('.feed.search-view [data-fd-tab="people"]')).click();
   await waitFor(page, `${S}.querySelectorAll('.vlist article.ucard').length === 2`);
   const cards = await page.evaluate(() => [...document.querySelector('xbb-fast').shadowRoot.querySelectorAll('.vlist article.ucard')].map(c => ({ href: c.dataset.href, text: c.textContent })));
@@ -497,7 +538,7 @@ const scrollToTweet = (page, id) => page.evaluate(id => new Promise(res => {
   await page.locator(sr('.feed.bookmarks-view .fd-banner [data-fd-native]')).click();
   await page.waitForTimeout(200);
   const sb = await page.evaluate(() => __setBlock.slice());
-  check('zero-js: "Open on X" turns the blocker off and reloads on that page (XBB.ext.setBlock(false, { url }))', sb.length === 1 && sb[0][0] === false && /\/i\/bookmarks$/.test(sb[0][1].url) && sb[0][1].reload === true && sb[0][1].reason === 'to-native', sb);
+  check('zero-js: "Open on X" turns the blocker off and reloads on that page with ?xbb=native (XBB.ext.setBlock(false, { url }))', sb.length === 1 && sb[0][0] === false && /\/i\/bookmarks\?xbb=native$/.test(sb[0][1].url) && sb[0][1].reload === true && sb[0][1].reason === 'to-native', sb);
   await ctx.close();
 }
 

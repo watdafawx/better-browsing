@@ -257,13 +257,19 @@
     toNative(url) {
       // From a post in the drawer, X's own page is that post (X's router follows the URL we are already on)
       if (!url && state && state.owned) { const o = ovState(); if (o && Array.isArray(o.drawer) && o.drawer.length) url = here(); }
+      const u = new URL(url || location.href, location.href);
+      const ownedTarget = !url || !!routeOf(u.pathname);
       if (XBB.ext && XBB.ext.blocking()) {
-        const u = new URL(url || location.href, location.href);
-        if (!url) u.searchParams.set('xbb', 'native');
+        if (ownedTarget) u.searchParams.set('xbb', 'native');
         XBB.ext.setBlock(false, { reload: true, url: u.href, reason: 'to-native' });
         return;
       }
-      if (url) { navigateX(url); update(); return; }
+      if (url) {
+        if (ownedTarget) escaped = true;
+        navigateX(url);
+        update();
+        return;
+      }
       escaped = true;
       update();
     },

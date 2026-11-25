@@ -75,8 +75,9 @@
 
     const main = h('main', { 'aria-label': 'Timeline' });
     const search = h('input', { type: 'search', name: 'q', placeholder: 'Search on X', autocomplete: 'off', 'aria-label': 'Search on X' });
+    const sideSearch = h('form', { class: 'search', role: 'search', 'data-xbb-search': '' }, h('label', null, I('explore'), search));
     const side = h('aside', { class: 'side' },
-      h('form', { class: 'search', role: 'search', 'data-xbb-search': '' }, h('label', null, I('explore'), search)),
+      sideSearch,
       h('section', { class: 'card' },
         h('h2', null, 'Fast UI'),
         h('p', null, 'Home, profiles, search, bookmarks, notifications and messages, without the wait. Everything else opens X\'s own page.'),
@@ -124,6 +125,9 @@
       if (u.pathname + u.search === fast.routeUrl() && !fast.ov.isOurs()) { if (view && view.top) view.top(); return; }
       fast.go(u.pathname + u.search + u.hash);
     });
+    const offSearchBox = fast.views && fast.views.search && fast.views.search.attachBox
+      ? fast.views.search.attachBox(search, { wrap: sideSearch, onQuery: q => fast.go(fast.views.search.urlFor(q, 'top')) })
+      : null;
     root.addEventListener('submit', e => {
       const f = firstEl(e).closest('[data-xbb-search]');
       if (!f) return;
@@ -131,6 +135,7 @@
       const q = search.value.trim();
       if (!q) return;
       search.blur();
+      if (fast.views && fast.views.search && fast.views.search.addRecent) fast.views.search.addRecent({ kind: 'query', q });
       fast.go(fast.views && fast.views.search ? fast.views.search.urlFor(q, 'top') : '/search?q=' + encodeURIComponent(q) + '&src=typed_query');
     });
     // Prefetch thread replies on 220ms hover or pointerdown (max 1 hover prefetch in flight) so comments
@@ -317,6 +322,8 @@
         }
         const label = (s && { home: 'Home timeline', bookmarks: 'Bookmarks', search: 'Search results', profile: 'Profile' }[s.route]) || 'Timeline';
         if (main.getAttribute('aria-label') !== label) main.setAttribute('aria-label', label);
+        sideSearch.hidden = !!(s && s.route === 'search');
+        if (sideSearch.hidden && offSearchBox && offSearchBox.close) offSearchBox.close();
       },
       // unread counts on the rail (n > 0 shows it; 0 or null hides it)
       setBadge(kind, n) {
@@ -332,6 +339,7 @@
       applyTheme,
       destroy() {
         hcClose();
+        if (offSearchBox && offSearchBox.destroy) offSearchBox.destroy();
         removeEventListener('scroll', onScrollHide);
         if (typeof offSettings === 'function') offSettings();
         host.remove();

@@ -393,10 +393,41 @@ dialog.drawer.center .dr-panel { width: min(640px, calc(100vw - 24px)); height: 
 .ucard:hover { background: var(--bg-hover); }
 .ucard .avl { display: block; width: 40px; height: 40px; }
 .ucard .bio { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sr-head { display: flex; flex-direction: column; }
 .sr-bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; }
-.sr-bar .search { flex: 1; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 16px; border-radius: 999px; background: var(--bg-2); border: 1px solid transparent; color: var(--muted); }
+.sr-bar .search { flex: 1; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px 0 16px; border-radius: 999px; background: var(--bg-2); border: 1px solid transparent; color: var(--muted); }
 .sr-bar .search:focus-within { border-color: var(--accent); background: var(--bg); }
 .sr-bar input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--text); font: inherit; }
+.sr-bar input::-webkit-search-cancel-button, .side .search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.sr-wrap { position: relative; }
+.sr-clear { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; background: var(--accent); color: #fff; }
+.sr-clear svg { width: 13px; height: 13px; stroke-width: 2.4; }
+.sr-clear:hover { opacity: .88; }
+.sr-drop { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 45; max-height: min(440px, 65vh); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--text); box-shadow: var(--shadow); }
+.sr-bar .sr-drop { left: 56px; right: 12px; }
+.sr-sec { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 6px; font-size: 13px; font-weight: 700; color: var(--text); }
+.sr-clear-all { color: var(--accent); font-size: 13px; font-weight: 600; padding: 2px 6px; border-radius: 999px; }
+.sr-clear-all:hover { background: var(--accent-soft); }
+.sr-opt { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; min-width: 0; }
+.sr-opt:hover, .sr-opt.active { background: var(--bg-hover); }
+.sr-qic { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; color: var(--muted); background: var(--bg-2); }
+.sr-qic svg { width: 15px; height: 15px; }
+.sr-qtxt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-user .av.sm { width: 32px; height: 32px; font-size: 12px; }
+.sr-uinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 18px; }
+.sr-uname { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.sr-uname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-uhandle { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-rm { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; flex: none; color: var(--muted); }
+.sr-rm svg { width: 14px; height: 14px; }
+.sr-rm:hover { background: var(--accent-soft); color: var(--accent); }
+.sr-div { height: 1px; background: var(--line); margin: 4px 0; }
+.sr-empty, .sr-hint { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+.sr-chips { display: flex; gap: 6px; padding: 2px 12px 8px; overflow-x: auto; scrollbar-width: none; }
+.sr-chips::-webkit-scrollbar { display: none; }
+.sr-chip { flex: none; height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; transition: background-color .12s, color .12s, border-color .12s; }
+.sr-chip:hover { color: var(--text); border-color: var(--muted); }
+.sr-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
 /* ---------- M4: notifications popout (top layer: no backdrop-filter, solid surface) ---------- */
 .ntf { position: fixed; inset: auto; margin: 0; width: min(400px, calc(100vw - 16px)); max-height: min(640px, calc(100vh - 16px)); padding: 0; display: none; flex-direction: column;
@@ -502,4 +533,5 @@ dialog.drawer.center .dr-panel { width: min(640px, calc(100vw - 24px)); height: 
 :host([data-bb-transparent="1"]) .dm-panel,
 :host([data-bb-transparent="1"]) .nt-pop,
 :host([data-bb-transparent="1"]) .hovercard,
+:host([data-bb-transparent="1"]) .sr-drop,
 :host([data-bb-transparent="1"]) .bt-pop { background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }

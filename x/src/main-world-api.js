@@ -467,7 +467,7 @@
     let variables;
     if (o.liveVars) {
       variables = Object.assign({}, o.liveVars);
-      if (isObj(req.variables)) for (const k of Object.keys(req.variables)) if (k in variables || k === 'cursor' || k === 'count') variables[k] = req.variables[k];
+      if (isObj(req.variables)) for (const k of Object.keys(req.variables)) if (k in variables || k === 'cursor' || k === 'count' || k === 'product' || k === 'rawQuery' || k === 'querySource') variables[k] = req.variables[k];
     } else variables = isObj(req.variables) ? req.variables : {};
     const features = boolMap(req.features) || buildFeatures(o);
     const toggles = boolMap(req.fieldToggles) || buildToggles(o);
