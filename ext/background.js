@@ -51,6 +51,17 @@
     reddit: { ids: [], build: () => [] },
     instagram: { ids: [], build: () => [] }
   };
+  // Always-on verified telemetry & ad endpoints for Reddit (3001..3005) and Instagram (4001..4002)
+  const NOISE_RULES = [
+    blockRule(3001, '||id.rlcdn.com/', ['reddit.com']),
+    blockRule(3002, '||pi.reddit.com/', ['reddit.com']),
+    blockRule(3003, '||w3-reporting.reddit.com/', ['reddit.com']),
+    blockRule(3004, '||www.reddit.com/svc/events', ['reddit.com']),
+    blockRule(3005, '||www.redditstatic.com/shreddit/sentry-', ['reddit.com'], ['script']),
+    blockRule(4001, '||graph.instagram.com/logging_client_events', ['instagram.com']),
+    blockRule(4002, '||www.instagram.com/ads/igwww_ads_graphql', ['instagram.com'])
+  ];
+  const NOISE_IDS = NOISE_RULES.map(r => r.id);
   const blockKey = site => 'bb:block:' + site;
   const exclKey = site => 'bb:excl:' + site;
   const sess = api.storage && api.storage.session ? api.storage.session : api.storage.local;
@@ -127,11 +138,16 @@
       }
     });
   }
-  // Restore every site's session rules on worker start
+  // Restore every site's session rules + verified telemetry/ad rules on worker start
   (async () => {
     for (const site of Object.keys(DNR)) {
       if (DNR[site].ids.length) await syncRules(site, await getBlock(site), await getExcl(site));
     }
+    try {
+      const dnr = api.declarativeNetRequest;
+      if (dnr.updateSessionRules) await dnr.updateSessionRules({ removeRuleIds: NOISE_IDS, addRules: NOISE_RULES });
+      else if (dnr.updateDynamicRules) await dnr.updateDynamicRules({ removeRuleIds: NOISE_IDS, addRules: NOISE_RULES });
+    } catch (e) { devLog('error', ['DNR noise rules failed:', String(e)]); }
   })();
 
   // ---- open a site's settings: new tab, then ask its content script once it has loaded ----

@@ -63,13 +63,15 @@ try {
   const ep = await ctx.newPage();
   await ep.goto(`chrome-extension://${id}/popup/popup.html`);
   const set = (site, block) => ep.evaluate(m => chrome.runtime.sendMessage(m), { type: 'bb-ext-set', site, block });
-  const rules = () => sw.evaluate(() => chrome.declarativeNetRequest.getSessionRules().then(r => r.map(x => x.id).sort().join()));
+  const rules = () => sw.evaluate(() => chrome.declarativeNetRequest.getSessionRules().then(r => r.filter(x => x.id < 3000).map(x => x.id).sort().join()));
+  checks['reddit + instagram: verified telemetry/ad rules 3001..3005, 4001..4002 active'] =
+    (await sw.evaluate(() => chrome.declarativeNetRequest.getSessionRules().then(r => r.filter(x => x.id >= 3000).map(x => x.id).sort().join()))) === '3001,3002,3003,3004,3005,4001,4002';
   checks['x: bb-ext-set block=true installs rules 1001..1003'] = (await set('x', true)).blocking === true && (await rules()) === '1001,1002,1003';
   checks['x: bb-ext-get reports the state'] = (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'bb-ext-get', site: 'x' }))).blocking === true;
   checks['x: legacy xbb-ext-set alias still works (block=false removes the rules)'] =
     (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'xbb-ext-set', block: false }))).blocking === false && (await rules()) === '';
   checks['pinterest: bb-ext-set block=true installs rules 2001..2002 (s.pinimg.com/webapp/, pinterest initiators)'] = (await set('pinterest', true)).blocking === true && (await rules()) === '2001,2002'
-    && (await sw.evaluate(() => chrome.declarativeNetRequest.getSessionRules().then(r => r.every(x => x.condition.urlFilter === '||s.pinimg.com/webapp/' && x.condition.initiatorDomains.includes('pinterest.com')))));
+    && (await sw.evaluate(() => chrome.declarativeNetRequest.getSessionRules().then(r => r.filter(x => x.id >= 2000 && x.id < 3000).every(x => x.condition.urlFilter === '||s.pinimg.com/webapp/' && x.condition.initiatorDomains.includes('pinterest.com')))));
   checks['pinterest: the pin-ext-set alias removes them again'] =
     (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'pin-ext-set', block: false }))).blocking === false && (await rules()) === '';
   await ep.close();
