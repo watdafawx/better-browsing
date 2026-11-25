@@ -203,7 +203,8 @@
       },
       refresh: schedule,
       layoutNow: layout,
-      pause(on) { paused = !!on; if (!paused) schedule(); },
+      // resumed: the list may have moved (another view was in the column meanwhile), so measure again
+      pause(on) { paused = !!on; if (!paused) { topDirty = true; dirty = true; schedule(); } },
       rows: () => rows,
       mounted: () => mounted.size,
       nodes: () => [...mounted.values()],

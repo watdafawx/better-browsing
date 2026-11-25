@@ -10,7 +10,8 @@
      3. EXECUTES calls the content script asks for with what 1. and 2. learned.
    Talks to content/api.js only through CustomEvents on `document` whose `detail` is a JSON STRING (an object made
    in the other realm is unreadable across Firefox's Xray wrappers; a string always crosses):
-     xbb-api-req  content -> page   { id, op, variables, method, extraHeaders, ... } or { id, type: 'status' }
+     xbb-api-req  content -> page   { id, op, variables, method, extraHeaders, ... }, { id, type: 'status' }
+                                    or { id, type: 'rest', path, method, query, body, form } (X's REST API)
      xbb-api-res  page -> content   { id, ok, status, data, error, queryId }
      xbb-api-tap  page -> content   { op, queryId, variables, status, t, data }   (only while <html data-xbb-api-tap>)
    Idle cost: a wrapper per fetch/XHR that does one indexOf, and the webpack array hook. Scanning module sources
@@ -28,7 +29,17 @@
   const isApiUrl = u => u.indexOf('/i/api/') !== -1 || u.indexOf('/graphql/') !== -1;
   const VALID_ID = /^[\w-]{8,64}$/;
   const TAP_OPS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'TweetDetail', 'UserByScreenName', 'UserTweets',
-    'UserTweetsAndReplies', 'UserMedia', 'Likes', 'Bookmarks', 'SearchTimeline']);
+    'UserTweetsAndReplies', 'UserMedia', 'UserOriginalsTimeline', 'Likes', 'Bookmarks', 'SearchTimeline',
+    'NotificationsTimeline', 'fetchNotificationBadgeCountsQuery']);
+  // X's own REST calls whose answers Fast UI can reuse (the unread badge X polls, its notification and DM lists):
+  // tapped under these names, same rules as the GraphQL ones (only while <html data-xbb-api-tap>)
+  const REST_TAP = [[/\/2\/badge_count\/badge_count\.json/, 'badge_count'], [/\/2\/notifications\/all\.json/, 'notifications_all'],
+    [/\/2\/notifications\/mentions\.json/, 'notifications_mentions'], [/\/1\.1\/dm\/inbox_initial_state\.json/, 'dm_inbox']];
+  const restTapOf = url => {
+    if (!tapOn() || url.indexOf('/graphql/') !== -1) return null;
+    for (const [re, op] of REST_TAP) if (re.test(url)) return { op, queryId: '', variables: null, tap: true };
+    return null;
+  };
   // Headers that make up "the session". Anything else X sends is X's business.
   const SESSION_HEADERS = ['authorization', 'x-csrf-token', 'x-twitter-auth-type', 'x-twitter-client-language',
     'x-xp-forwarded-for', 'x-twitter-active-user'];
@@ -328,7 +339,7 @@
       if (isApiUrl(url)) {
         captureHeaders((init && init.headers) || (input && input.headers));
         const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-        g = learnGraphql(url, init && typeof init.body === 'string' ? init.body : null, method);
+        g = learnGraphql(url, init && typeof init.body === 'string' ? init.body : null, method) || (method === 'GET' ? restTapOf(url) : null);
       }
     } catch {}
     const p = origFetch.apply(this, arguments);
@@ -361,7 +372,7 @@
         const i = xinfo.get(this);
         if (i && i.api) {
           captureHeaders(i.h);
-          const g = learnGraphql(i.u, typeof body === 'string' ? body : null, i.m);
+          const g = learnGraphql(i.u, typeof body === 'string' ? body : null, i.m) || (i.m === 'GET' ? restTapOf(i.u) : null);
           if (g && g.tap) {
             const xhr = this;
             xhr.addEventListener('load', () => {
@@ -496,6 +507,51 @@
     } finally { clearTimeout(timer); }
   }
 
+  // ---------- X's REST API (notifications, DMs, friendships) ----------
+  // { type: 'rest', path, method, query, body, form, timeout }: only X's own API (same-origin /i/api/..., or
+  // api.x.com), with the session X itself uses: the bearer it sent, x-csrf-token from ct0, cookies included.
+  // `body` is sent as JSON, or url-encoded with `form: true` (friendships/create.json and the other 1.1 forms).
+  async function executeRest(req) {
+    let u;
+    try { u = new URL(String(req.path || ''), location.origin); } catch { return { ok: false, status: 0, error: 'bad-path' }; }
+    const same = u.origin === location.origin && u.pathname.indexOf('/i/api/') === 0;
+    if (!same && !(u.protocol === 'https:' && u.hostname === 'api.x.com')) return { ok: false, status: 0, error: 'bad-path' };
+    if (isObj(req.query)) for (const k of Object.keys(req.query)) { const v = req.query[k]; if (v !== undefined && v !== null) u.searchParams.set(k, String(v)); }
+    const csrf = session['x-csrf-token'] || cookieCsrf();
+    if (!session.authorization || !csrf) return { ok: false, status: 0, error: 'no-auth' };
+    const method = String(req.method || 'GET').toUpperCase();
+    const headers = { authorization: session.authorization, 'x-csrf-token': csrf };
+    for (const k of SESSION_HEADERS) if (session[k] && !headers[k]) headers[k] = session[k];
+    let body;
+    if (method !== 'GET' && req.body !== undefined && req.body !== null) {
+      if (req.form && isObj(req.body)) {
+        const sp = new URLSearchParams();
+        for (const k of Object.keys(req.body)) sp.set(k, String(req.body[k]));
+        body = sp.toString();
+        headers['content-type'] = 'application/x-www-form-urlencoded';
+      } else {
+        body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        headers['content-type'] = 'application/json';
+      }
+    }
+    if (method !== 'GET') { const tx = await txid(u.pathname, method); if (tx) headers['x-client-transaction-id'] = tx; }
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), Math.max(500, Math.min(60000, +req.timeout || 15000)));
+    try {
+      const res = await origFetch(u.href, { method, headers, body, credentials: 'include', signal: ctl.signal });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; } catch {}
+      const out = { ok: res.ok, status: res.status, data };
+      if (res.ok && data === null) { out.ok = false; out.error = 'non-json'; }
+      const reset = res.headers.get('x-rate-limit-reset');
+      if (reset) out.rateLimitReset = +reset || null;
+      return out;
+    } catch (e) {
+      return { ok: false, status: 0, error: e && e.name === 'AbortError' ? 'timeout' : 'network' };
+    } finally { clearTimeout(timer); }
+  }
+
   async function statusInfo(scan) {
     if (scan) await ensureHarvest();
     const names = Object.keys(ops).filter(k => ops[k].queryId);
@@ -518,7 +574,7 @@
     if (!isObj(req) || typeof req.id !== 'string') return;
     let out;
     try {
-      out = req.type === 'status' ? { ok: true, status: 200, data: await statusInfo(!!req.scan) } : await execute(req);
+      out = req.type === 'status' ? { ok: true, status: 200, data: await statusInfo(!!req.scan) } : req.type === 'rest' ? await executeRest(req) : await execute(req);
     } catch (err) {
       out = { ok: false, status: 0, error: 'internal' };
     }

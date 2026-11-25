@@ -381,5 +381,196 @@
   // pbs.twimg.com avatars come as `_normal` (48 px); `_bigger`, `_200x200`, `_400x400` are the other sizes
   const avatarSize = (url, size) => typeof url === 'string' ? url.replace(/_(?:normal|bigger|mini|200x200|400x400|reasonably_small)(\.\w+)$/, '_' + size + '$1') : '';
 
-  XBB.model = { normalizeTweet, normalizeUser, extractTimeline, extractUser, avatarSize, toMs };
+  // ---------- REST (1.1 / 2) shapes: flat legacy objects, keyed by id ----------
+  // A v1.1 user ({ id_str, screen_name, ... }) or tweet ({ id_str, full_text, user_id_str, ... }) wrapped the way
+  // GraphQL sends them, so the normalizers above read them like any other.
+  const legacyUser = (u, id) => !isObj(u) ? null : (u.legacy || u.core || u.__typename) ? u : { __typename: 'User', rest_id: str(u.id_str) || str(id) || str(u.id), legacy: u };
+  function legacyTweet(t, users) {
+    if (!isObj(t)) return null;
+    if (t.legacy || t.__typename) return normalizeTweet(t);
+    const uid = str(t.user_id_str) || str(get(t, 'user', 'id_str'));
+    const u = (isObj(users) && users[uid]) || t.user;
+    return normalizeTweet({ __typename: 'Tweet', rest_id: str(t.id_str) || str(t.id), legacy: t, core: { user_results: { result: legacyUser(u, uid) } } });
+  }
+  // sortIndex values are big decimal strings: longer is larger, else compare as text
+  const cmpSort = (a, b) => a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0;
+  const ICON_KIND = [[/heart|like|favorite/i, 'like'], [/retweet|repost/i, 'rt'], [/person|follow/i, 'follow'], [/reply|comment|conversation/i, 'reply'],
+    [/mention|at_?sign/i, 'mention'], [/milestone|bird|bell|recommend|spaces|live|safety|security|alert/i, 'bell']];
+  const iconKind = s => { for (const [re, k] of ICON_KIND) if (re.test(s || '')) return k; return 'bell'; };
+
+  // Notifications, from either shape X has served them in:
+  //   REST /i/api/2/notifications/{all,mentions}.json: globalObjects { notifications, tweets, users } + timeline.instructions
+  //     ({ addEntries: { entries } }, { markEntriesUnreadGreaterThanSortIndex: { sortIndex } }, cursors under content.operation)
+  //   GraphQL NotificationsTimeline (Relay era): TimelineNotification items { rich_message, notification_icon, template:
+  //     { from_users, target_objects }, timestamp_ms, notification_url } and TimelineTweet items (mentions, replies)
+  // -> { ok, items: [{ kind: 'notification'|'tweet', id, icon, text, users: [user], tweet, tweetId, url, timeMs, unread }], cursors }
+  function extractNotifications(data) {
+    const out = { ok: false, items: [], cursors: { top: null, bottom: null } };
+    try {
+      const g = isObj(data) && isObj(data.globalObjects) ? data.globalObjects : null;
+      if (g) {
+        out.ok = true;
+        const users = isObj(g.users) ? g.users : {}, tweets = isObj(g.tweets) ? g.tweets : {}, notes = isObj(g.notifications) ? g.notifications : {};
+        const tw = id => tweets[id] ? legacyTweet(tweets[id], users) : null;
+        const usr = id => users[id] ? normalizeUser(legacyUser(users[id], id)) : null;
+        const note = (n, id, sort, unread, ref) => {
+          const tpl = get(n, 'template', 'aggregateUserActionsV1') || {};
+          const us = arr(tpl.fromUsers).map(x => usr(str(get(x, 'user', 'id')))).filter(Boolean);
+          if (!us.length && ref) for (const uid of arr(ref.fromUsers)) { const u = usr(str(uid)); if (u) us.push(u); }
+          const tweetId = arr(tpl.targetObjects).map(x => str(get(x, 'tweet', 'id'))).filter(Boolean)[0] || null;
+          return { kind: 'notification', id: str(n.id) || id, icon: iconKind(str(get(n, 'icon', 'id'))), text: unescapeHtml(str(get(n, 'message', 'text'))), users: us,
+            tweet: tweetId ? tw(tweetId) : null, tweetId, url: str(get(ref, 'url', 'url')), timeMs: num(n.timestampMs) || null, unread, sortIndex: sort };
+        };
+        const entries = [];
+        let unreadAbove = '';
+        for (const i of arr(get(data, 'timeline', 'instructions'))) {
+          if (!isObj(i)) continue;
+          const ae = i.addEntries || (isArr(i.entries) ? i : null);
+          if (ae) for (const e of arr(ae.entries)) entries.push(e);
+          if (isObj(i.markEntriesUnreadGreaterThanSortIndex)) unreadAbove = str(i.markEntriesUnreadGreaterThanSortIndex.sortIndex);
+        }
+        const seen = new Set();
+        for (const e of entries) {
+          if (!isObj(e)) continue;
+          const sort = str(e.sortIndex ?? e.sort_index), c = isObj(e.content) ? e.content : {};
+          const cur = get(c, 'operation', 'cursor');
+          if (isObj(cur)) { const t = str(cur.cursorType); if (t === 'Top') out.cursors.top = str(cur.value); else if (t === 'Bottom') out.cursors.bottom = str(cur.value); continue; }
+          const ic = get(c, 'item', 'content') || {};
+          const unread = !!(unreadAbove && sort && cmpSort(sort, unreadAbove) > 0);
+          if (isObj(ic.notification)) {
+            const id = str(ic.notification.id), n = notes[id];
+            if (!isObj(n) || seen.has(id)) continue;
+            seen.add(id);
+            out.items.push(note(n, id, sort, unread, ic.notification));
+          } else if (isObj(ic.tweet)) {
+            const id = str(ic.tweet.id), t = tw(id);
+            if (!t || t.type !== 'tweet' || seen.has('t' + id)) continue;
+            seen.add('t' + id);
+            out.items.push({ kind: 'tweet', id: 't' + id, icon: 'reply', text: '', users: [t.author], tweet: t, tweetId: id, url: '', timeMs: t.createdAtMs, unread, sortIndex: sort });
+          }
+        }
+        if (!entries.length) {
+          for (const id of Object.keys(notes)) if (isObj(notes[id])) out.items.push(note(notes[id], id, '', false, null));
+          out.items.sort((a, b) => (b.timeMs || 0) - (a.timeMs || 0));
+        }
+        return out;
+      }
+      const ins = findInstructions(data);
+      if (!ins) return out;
+      out.ok = true;
+      let unreadAbove = '';
+      const entries = [];
+      for (const i of ins) {
+        if (!isObj(i)) continue;
+        const t = str(i.type || i.__typename);
+        if (/Unread/.test(t)) unreadAbove = str(i.sort_index ?? i.sortIndex) || unreadAbove;
+        else if (isArr(i.entries)) for (const e of i.entries) entries.push(e);
+        else if (isObj(i.entry)) entries.push(i.entry);
+      }
+      const seen = new Set();
+      for (const e of entries) {
+        if (!isObj(e) || !isObj(e.content)) continue;
+        const c = e.content, entryId = str(e.entryId ?? e.entry_id), sort = str(e.sortIndex ?? e.sort_index);
+        if (has(c.cursorType) || has(c.cursor_type) || /Cursor/.test(str(c.entryType || c.__typename))) {
+          const t = str(c.cursorType ?? c.cursor_type), v = str(c.value);
+          if (t === 'Top') out.cursors.top = v; else if (t === 'Bottom') out.cursors.bottom = v;
+          continue;
+        }
+        const ic = c.itemContent ?? c.content ?? get(c, 'item', 'itemContent') ?? get(c, 'item', 'content');
+        if (!isObj(ic)) continue;
+        const kind = str(ic.itemType) || str(ic.__typename);
+        const unread = !!(unreadAbove && sort && cmpSort(sort, unreadAbove) > 0);
+        if (kind === 'TimelineNotification') {
+          const tpl = isObj(ic.template) ? ic.template : {};
+          const us = arr(tpl.from_users ?? tpl.fromUsers).map(x => normalizeUser(isObj(x) ? (x.user_results ?? x) : null)).filter(u => u && !u.unavailable && u.id);
+          let tweet = null;
+          for (const o of arr(tpl.target_objects ?? tpl.targetObjects)) { const r = isObj(o) ? (o.tweet_results ?? get(o, 'tweet', 'tweet_results')) : null; if (r) { tweet = normalizeTweet(r); if (tweet) break; } }
+          const id = str(ic.id) || entryId;
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.items.push({ kind: 'notification', id, icon: iconKind(str(ic.notification_icon ?? get(ic, 'icon', 'id'))), text: unescapeHtml(str(get(ic, 'rich_message', 'text') ?? get(ic, 'message', 'text'))),
+            users: us, tweet: tweet && tweet.type === 'tweet' ? tweet : null, tweetId: tweet && tweet.id ? tweet.id : null, url: str(get(ic, 'notification_url', 'url')), timeMs: num(ic.timestamp_ms ?? ic.timestampMs) || null, unread, sortIndex: sort });
+        } else if (kind === 'TimelineTweet') {
+          const t = normalizeTweet(ic.tweet_results);
+          if (!t || t.type !== 'tweet' || seen.has('t' + t.id)) continue;
+          seen.add('t' + t.id);
+          out.items.push({ kind: 'tweet', id: 't' + t.id, icon: 'reply', text: '', users: [t.author], tweet: t, tweetId: t.id, url: '', timeMs: t.createdAtMs, unread, sortIndex: sort });
+        }
+      }
+    } catch {}
+    return out;
+  }
+
+  // The unread count in a badge response: REST badge_count.json ({ ntab_unread_count, dm_unread_count, ... }) or the
+  // GraphQL fetchNotificationBadgeCountsQuery (the same names somewhere under data). null when none is there.
+  function badgeCounts(data) {
+    const out = { notifications: null, messages: null };
+    try {
+      const q = [data];
+      for (let n = 0; q.length && n < 500; n++) {
+        const c = q.shift();
+        if (!isObj(c)) continue;
+        for (const k of Object.keys(c)) {
+          const v = c[k];
+          if (typeof v === 'number' && isFinite(v)) {
+            if (out.notifications === null && /ntab.*unread|unread.*ntab|^notifications?_?unread_?count$/i.test(k)) out.notifications = v;
+            else if (out.messages === null && /^dm_?unread_?count$/i.test(k)) out.messages = v;
+          } else if (isObj(v)) q.push(v);
+        }
+      }
+    } catch {}
+    return out;
+  }
+
+  // Direct messages from X's REST API (/i/api/1.1/dm/...): inbox_initial_state, inbox_timeline, conversation_timeline,
+  // or a new2.json answer ({ entries, users }). Each holds `entries` ([{ message: { id, time, conversation_id,
+  // message_data: { sender_id, text, entities, attachment } } }, ...]), `users` (v1.1 users by id) and `conversations`.
+  // -> { ok, conversations: [...newest first], messages: [...as given], users: { id: user }, cursor, status, minEntryId }
+  function extractDm(data) {
+    const out = { ok: false, conversations: [], messages: [], users: {}, cursor: null, status: '', minEntryId: '' };
+    try {
+      const box = get(data, 'inbox_initial_state') || get(data, 'conversation_timeline') || get(data, 'inbox_timeline') || get(data, 'user_events')
+        || (isObj(data) && (isArr(data.entries) || isObj(data.conversations)) ? data : null);
+      if (!isObj(box)) return out;
+      out.ok = true;
+      const users = isObj(box.users) ? box.users : {};
+      for (const id of Object.keys(users)) { const u = normalizeUser(legacyUser(users[id], id)); if (u && !u.unavailable) out.users[u.id || id] = u; }
+      out.cursor = str(box.cursor) || null;
+      out.status = str(box.status);
+      out.minEntryId = str(box.min_entry_id);
+      for (const e of arr(box.entries)) {
+        const m = isObj(e) ? e.message : null;
+        if (!isObj(m)) continue;
+        const md = isObj(m.message_data) ? m.message_data : {};
+        const att = isObj(md.attachment) ? md.attachment : {};
+        const pic = att.photo || att.animated_gif || att.video;
+        out.messages.push({
+          id: str(m.id) || str(md.id), convId: str(m.conversation_id), senderId: str(md.sender_id), time: num(m.time ?? md.time) || null,
+          text: unescapeHtml(str(md.text)), entities: entitiesOf(md.entities),
+          media: isObj(pic) ? { type: att.photo ? 'photo' : att.video ? 'video' : 'gif', url: str(pic.media_url_https), tcoUrl: str(pic.url), width: num(get(pic, 'original_info', 'width')), height: num(get(pic, 'original_info', 'height')) } : null,
+          tweetUrl: str(get(att, 'tweet', 'expanded_url')) || null, requestId: str(m.request_id),
+          encrypted: !!(md.encrypted || m.encrypted || md.encrypted_text || m.is_e2ee)
+        });
+      }
+      const convs = isObj(box.conversations) ? box.conversations : {};
+      for (const id of Object.keys(convs)) {
+        const c = convs[id];
+        if (!isObj(c)) continue;
+        const type = str(c.type);
+        out.conversations.push({
+          id: str(c.conversation_id) || id, type, group: /GROUP/i.test(type), name: str(c.name),
+          avatar: str(get(c, 'avatar', 'image', 'original_info', 'url') ?? get(c, 'avatar_image_https')),
+          participants: arr(c.participants).map(p => str(isObj(p) ? p.user_id : p)).filter(Boolean),
+          sortEventId: str(c.sort_event_id), sortTime: num(c.sort_timestamp), lastRead: str(c.last_read_event_id),
+          trusted: c.trusted !== false, muted: c.muted === true, readOnly: c.read_only === true, status: str(c.status), minEntryId: str(c.min_entry_id),
+          encrypted: c.is_e2ee === true || c.e2ee === true || c.encrypted === true || c.is_encrypted === true || /ENCRYPT|E2EE|XCHAT/i.test(type)
+        });
+      }
+      out.conversations.sort((a, b) => b.sortTime - a.sortTime || cmpSort(b.sortEventId, a.sortEventId));
+    } catch {}
+    return out;
+  }
+
+  XBB.model = { normalizeTweet, normalizeUser, extractTimeline, extractUser, avatarSize, toMs,
+    legacyUser, legacyTweet, extractNotifications, badgeCounts, extractDm, cmpSort };
 })();

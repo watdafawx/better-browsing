@@ -264,11 +264,13 @@
     onKey(e);
   }, true);
 
-  // Which overlay's videos may play: the lightbox's, else the drawer's, else the feed's
+  // Which overlay's videos may play: the lightbox's, else the drawer's, else the messages drawer's (none: the feed
+  // behind it stays paused), else the feed's
   fast.rescope = () => {
     if (!XBB.videoPolicy || !XBB.videoPolicy.scope) return;
     const d = fast.drawer && fast.drawer.el && fast.drawer.el();
-    XBB.videoPolicy.scope((dlg && dlg.open && dlg) || (d && d.open && d) || null);
+    const m = fast.messages && fast.messages.el && fast.messages.el();
+    XBB.videoPolicy.scope((dlg && dlg.open && dlg) || (d && d.open && d) || (m && m.open && m) || null);
   };
 
   fast.lightbox = {

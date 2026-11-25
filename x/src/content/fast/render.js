@@ -48,7 +48,14 @@
     expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/>',
     thread: '<path d="M4 12a8 8 0 0 1 8-7h1a7 7 0 0 1 0 14H9l-5 3v-4.5A7.9 7.9 0 0 1 4 12z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>',
     panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/>',
-    center: '<rect x="5" y="4" width="14" height="16" rx="2"/>'
+    center: '<rect x="5" y="4" width="14" height="16" rx="2"/>',
+    pin: '<path d="M9 4h6l-1 6 3 3v1.5H7V13l3-3zM12 14.5V21"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    chat: '<path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H6a2 2 0 0 1-2-2z"/>',
+    send: '<path d="M4 12 20 4l-4 16-4-6.5zM12 13.5 20 4"/>',
+    cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+    loc: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'
   };
   const tpl = new Map();
   function icon(name, cls = 'i') {
@@ -296,6 +303,7 @@
       const long = t.isLongform && !expanded.has(t.id) && !row.focal;
       const st = t.stats || {};
       const node = h('article', { class: 'tweet' + (row.threadNext ? ' thread-next' : '') + (row.threadPrev ? ' thread-prev' : '') + (row.focal ? ' focal' : ''), tabindex: '0', 'data-id': t.id, 'data-href': path(t), 'aria-label': `${t.author.name}: ${String(t.text || '').slice(0, 80)}` },
+        row.pinned ? h('div', { class: 'ctx' }, icon('pin'), 'Pinned') : null,
         t.retweetedBy ? h('div', { class: 'ctx' }, icon('rt'), h('a', { href: '/' + t.retweetedBy.screenName }, `${t.retweetedBy.name || t.retweetedBy.screenName} reposted`)) : null,
         h('a', { class: 'avl', href: '/' + t.author.screenName, tabindex: '-1', 'aria-hidden': 'true' }, avatar(t.author)),
         h('div', { class: 'body' },
@@ -313,7 +321,9 @@
           actions(t)));
       return node;
     } catch (e) {
-      fast.fail('home', 'render: ' + (e && e.message), false);
+      const r = fast.state().route;
+      if (r === 'home') fast.fail('home', 'render: ' + (e && e.message), false);
+      else console.error('[XBB fast] render', e);
       return fallback(t.id, 'This post could not be shown here.');
     }
   }
@@ -476,6 +486,18 @@
     return false;
   }
 
-  fast.render = { tweet, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
+  // ---------- a user as a row (People search, notifications) ----------
+  function userCard(u, opts = {}) {
+    if (!u || !u.id) return fallback('', 'This account could not be shown here.');
+    return h('article', { class: 'ucard', tabindex: '0', 'data-uid': u.id, 'data-href': '/' + u.screenName },
+      h('a', { class: 'avl', href: '/' + u.screenName, tabindex: '-1', 'aria-hidden': 'true' }, avatar(u)),
+      h('div', { class: 'body' },
+        h('div', { class: 'head' }, h('a', { class: 'name', href: '/' + u.screenName }, u.name || u.screenName), badge(u),
+          u.followedBy ? h('span', { class: 'follows-you' }, 'Follows you') : null),
+        h('div', { class: 'handle' }, '@' + u.screenName),
+        u.bio && !opts.short ? h('div', { class: 'bio', dir: 'auto' }, u.bio) : null));
+  }
+
+  fast.render = { tweet, userCard, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
     act, syncActions, avatar, badge, safe, photoSrc, mp4, ratio };
 })();

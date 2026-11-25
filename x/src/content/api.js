@@ -1,6 +1,7 @@
 /* X Fast UI: the content-script side of the GraphQL bridge (Milestone 1). Talks to main-world-api.js only
    through CustomEvents on `document` whose detail is a JSON string (objects do not cross Firefox's Xray wrappers):
      XBB.gql.call(op, variables, opts)   ask the page world to run a GraphQL operation as X's own client would
+     XBB.gql.rest(path, opts)            one call to X's REST API (notifications, DMs, friendships) with X's session
      XBB.gql.status(opts)                what the page world has learned: ops, session headers, txid, webpack
      XBB.gql.onTap(op, fn) / getTapped(op)   responses X itself got for its timeline/detail/profile/search calls
      XBB.gql.enableTap(on)               tapping costs the page a clone + JSON parse per response: off until wanted
@@ -45,6 +46,17 @@
     if (!available()) return { ok: false, error: 'no-main-world' };
     const r = await send({ type: 'status', scan: !!opts.scan }, opts.timeout || 8000);
     return r.ok ? Object.assign({ ok: true }, r.data) : { ok: false, error: r.error || 'failed' };
+  };
+
+  // Does the page world have a queryId for `op` (harvested, tapped or cached)? `scan` finishes the webpack scan first.
+  // For picking between two ops (UserOriginalsTimeline, else UserTweets); a call still works without asking.
+  let opNames = null, opAt = 0;
+  gql.knows = async (op, scan) => {
+    if (!opNames || scan || Date.now() - opAt > 30000) {
+      const st = await gql.status({ scan: !!scan, timeout: 4000 });
+      if (st.ok) { opNames = new Set(st.opNames || []); opAt = Date.now(); }
+    }
+    return !!(opNames && opNames.has(op));
   };
 
   // ---------- circuit breaker ----------
@@ -142,6 +154,36 @@
       if (t.soft >= SOFT_TRIP) gql.breaker.trip(op, Object.assign(info, { kind: 'unstable' }));
     } else if (st) st.probing = false;
     const out = Object.assign(base, { ok: false, kind, error: res.error || messageOf(res) });
+    if (res.rateLimitReset) out.rateLimitReset = res.rateLimitReset;
+    return out;
+  };
+
+  // ---------- X's REST API ----------
+  // XBB.gql.rest(path, { method, query, body, form, timeout }): one call to X's own REST API (/i/api/1.1/..., /i/api/2/...)
+  // through the page world, with X's session. Never throws; resolves { ok, kind, status, data, error }. There is no
+  // breaker here: a REST endpoint X moved (404/403) is the caller's "Open on X" note, it never hands a route to X.
+  //   kind: ok | auth (401, no session yet) | rate-limit (429) | not-found (404) | drift (400/403/422) | server |
+  //         network | timeout | parse | bad-path | no-main-world
+  gql.rest = async function rest(path, opts = {}) {
+    const fail = (kind, extra) => Object.assign({ ok: false, kind, status: 0, data: null }, extra);
+    if (typeof path !== 'string' || !path) return fail('bad-path');
+    if (!available()) return fail('no-main-world');
+    const timeout = opts.timeout || 15000;
+    const res = await send({ type: 'rest', path, method: opts.method || 'GET', query: opts.query, body: opts.body, form: !!opts.form, timeout }, timeout + 3000);
+    const s = res.status | 0;
+    let kind = 'ok';
+    if (res.error === 'no-auth') kind = 'auth';
+    else if (res.error === 'bad-path') kind = 'bad-path';
+    else if (res.error === 'timeout') kind = 'timeout';
+    else if (res.error === 'network' || res.error === 'send-failed') kind = 'network';
+    else if (res.error === 'non-json') kind = 'parse';
+    else if (s === 401) kind = 'auth';
+    else if (s === 429) kind = 'rate-limit';
+    else if (s === 404) kind = 'not-found';
+    else if (s >= 500) kind = 'server';
+    else if (!(s >= 200 && s < 300)) kind = 'drift';
+    const out = { ok: kind === 'ok', kind, status: s, data: res.data ?? null };
+    if (kind !== 'ok') out.error = res.error || messageOf(res);
     if (res.rateLimitReset) out.rateLimitReset = res.rateLimitReset;
     return out;
   };

@@ -6,7 +6,7 @@
      store.sub(id, fn)             fn(tweet) after every put/patch of that id; returns unsubscribe
      store.list(name)              a named timeline: { rows: [{ key, id, ... }], keys: Set, cursors, ... } */
 (() => {
-  const tweets = new Map(), users = new Map(), subs = new Map(), lists = new Map();
+  const tweets = new Map(), users = new Map(), subs = new Map(), lists = new Map(), profiles = new Map(), byHandle = new Map();
   const fire = id => {
     const set = subs.get(id);
     if (!set) return;
@@ -61,7 +61,26 @@
       if (!lists.has(name)) lists.set(name, { name, rows: [], keys: new Set(), heights: new Map(), cursors: { top: null, bottom: null }, vars: null, loadedAt: 0, scroll: 0 });
       return lists.get(name);
     },
-    stats: () => ({ tweets: tweets.size, users: users.size, subs: subs.size, lists: [...lists.values()].map(l => [l.name, l.rows.length]) })
+    // Full profiles (UserByScreenName: bio, banner, counts, following), by lowercase handle and by id
+    putProfile(u) {
+      if (!u || !u.id) return u;
+      const old = profiles.get(u.id);
+      const p = Object.assign({}, old, u, { at: Date.now() });
+      profiles.set(u.id, p);
+      if (u.screenName) byHandle.set(u.screenName.toLowerCase(), u.id);
+      users.set(u.id, Object.assign(users.get(u.id) || {}, u));
+      return p;
+    },
+    profile: sn => { const id = sn && byHandle.get(String(sn).toLowerCase()); return id ? profiles.get(id) : undefined; },
+    profileById: id => profiles.get(id),
+    userByHandle(sn) {
+      const p = store.profile(sn);
+      if (p) return p;
+      const want = String(sn || '').toLowerCase();
+      for (const u of users.values()) if (u.screenName && u.screenName.toLowerCase() === want) return u;
+      return undefined;
+    },
+    stats: () => ({ tweets: tweets.size, users: users.size, subs: subs.size, profiles: profiles.size, lists: [...lists.values()].map(l => [l.name, l.rows.length]) })
   };
   XBB.fast.store = store;
 })();
