@@ -58,6 +58,30 @@
   }
 
   const wantVolume = () => Math.max(0, Math.min(1, prefs.volume != null ? +prefs.volume : (+cfg.videoVolume || 40) / 100));
+  const canSound = el => {
+    try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {}
+    return !!(navigator.userActivation && navigator.userActivation.hasBeenActive);
+  };
+  let waitingSound = false;
+
+  function unmuteNow(video) {
+    if (!video || userMuted) return;
+    const vol = wantVolume();
+    video.volume = vol;
+    if (vol === 0) { video.muted = true; return; }
+    const offBtn = document.querySelector('.SoundButton[aria-label="Sound Off"], .soundOff, [aria-label="Sound Off"]');
+    if (offBtn) offBtn.click();
+    if (video.muted) video.muted = false;
+    if (cfg.videoMode !== 'off' && video.paused) {
+      video.play().catch(err => {
+        if (err && err.name === 'NotAllowedError') {
+          waitingSound = true;
+          video.muted = true;
+          video.play().catch(() => {});
+        }
+      });
+    }
+  }
 
   function applyAudio(video) {
     if (!video || userMuted) return;
@@ -66,16 +90,14 @@
     if (cfg.videoMode === 'muted' || vol === 0) {
       video.muted = true;
     } else if (cfg.videoMode === 'volume') {
-      const offBtn = document.querySelector('.soundOff, [aria-label="Sound Off"]');
-      if (offBtn) offBtn.click();
-      if (video.muted) {
-        video.muted = false;
-        // If browser paused playback because audible autoplay isn't allowed yet, resume muted until first click
-        if (video.paused && cfg.videoMode !== 'off') {
-          video.muted = true;
-          video.play().catch(() => {});
-        }
+      // Never unmute before the browser allows audible autoplay — Chrome pauses the video asynchronously
+      if (!canSound(video)) {
+        waitingSound = true;
+        if (video.paused && cfg.videoMode !== 'off') { video.muted = true; video.play().catch(() => {}); }
+        return;
       }
+      waitingSound = false;
+      unmuteNow(video);
     }
   }
 
@@ -178,10 +200,15 @@
     // Redgifs' React often re-mutes on canplay/playing right after mount: enforce once playback starts
     let unmuteTries = 0;
     const retryAudio = () => {
-      if (cfg.videoMode === 'volume' && !userMuted && video.muted && unmuteTries++ < 4) applyAudio(video);
+      if (cfg.videoMode === 'volume' && !userMuted && video.muted && canSound(video) && unmuteTries++ < 4) unmuteNow(video);
     };
     video.addEventListener('canplay', retryAudio);
     video.addEventListener('playing', retryAudio);
+    const onGesture = () => {
+      if (waitingSound && !userMuted && cfg.videoMode === 'volume') { waitingSound = false; unmuteNow(video); }
+    };
+    window.addEventListener('pointerdown', onGesture, true);
+    window.addEventListener('keydown', onGesture, true);
 
     if (bc) {
       video.addEventListener('play', () => { try { bc.postMessage({ playing: myToken }); } catch {} });
