@@ -92,40 +92,54 @@
     }
     if (p.features) { o.features = p.features; for (const k of Object.keys(p.features)) featureValues[k] = p.features[k]; }
     if (p.fieldToggles) o.fieldToggles = p.fieldToggles;
-    scheduleSave();
+    if (src !== 'cache') scheduleSave();
   }
 
+  function saveNow() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = 0; }
+    try {
+      const out = {};
+      for (const k of Object.keys(ops)) {
+        const o = ops[k];
+        if (!o.queryId) continue;
+        out[k] = { queryId: o.queryId, operationType: o.operationType, liveMethod: o.liveMethod, liveVars: o.liveVars, featureSwitches: o.featureSwitches,
+          fieldToggleNames: o.fieldToggleNames, features: o.features, fieldToggles: o.fieldToggles };
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, t: Date.now(), base: gqlBase, auth: session.authorization || '', ops: out, fv: featureValues }));
+    } catch {}
+  }
   function scheduleSave() {
     if (saveTimer) return;
-    saveTimer = setTimeout(() => {
-      saveTimer = 0;
-      try {
-        const out = {};
-        for (const k of Object.keys(ops)) {
-          const o = ops[k];
-          if (!o.queryId) continue;
-          out[k] = { queryId: o.queryId, operationType: o.operationType, liveMethod: o.liveMethod, liveVars: o.liveVars, featureSwitches: o.featureSwitches,
-            fieldToggleNames: o.fieldToggleNames, features: o.features, fieldToggles: o.fieldToggles };
-        }
-        localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, t: Date.now(), base: gqlBase, auth: session.authorization || '', ops: out, fv: featureValues }));
-      } catch {}
-    }, 1500);
+    saveTimer = setTimeout(saveNow, 1500);
   }
+  try { addEventListener('pagehide', () => { if (saveTimer) saveNow(); }); } catch {}
 
-  // Last session's ops: a head start for the first call, replaced by anything fresher
+  // Last session's ops (and any ops learned in another tab or before BFCache Back): replaced by anything fresher
   let gqlBase = '/i/api/graphql/';
-  try {
-    const c = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-    if (c && c.v === 1 && isObj(c.ops)) {
-      if (typeof c.base === 'string' && c.base.indexOf('/graphql/') !== -1) gqlBase = c.base;
-      if (typeof c.auth === 'string' && c.auth) session.authorization = c.auth;
-      for (const k of Object.keys(c.ops)) {
-        const e = c.ops[k];
-        if (isObj(e)) learn(k, { queryId: e.queryId, operationType: e.operationType, liveMethod: e.liveMethod, liveVars: e.liveVars, featureSwitches: e.featureSwitches,
-          fieldToggleNames: e.fieldToggleNames, features: boolMap(e.features), fieldToggles: boolMap(e.fieldToggles) }, 'cache');
+  function loadCache() {
+    let added = false;
+    try {
+      const c = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+      if (c && c.v === 1 && isObj(c.ops)) {
+        if (typeof c.base === 'string' && c.base.indexOf('/graphql/') !== -1) gqlBase = c.base;
+        if (typeof c.auth === 'string' && c.auth && !session.authorization) session.authorization = c.auth;
+        for (const k of Object.keys(c.ops)) {
+          const e = c.ops[k];
+          if (isObj(e)) {
+            if (!ops[k] || !ops[k].queryId) added = true;
+            learn(k, { queryId: e.queryId, operationType: e.operationType, liveMethod: e.liveMethod, liveVars: e.liveVars, featureSwitches: e.featureSwitches,
+              fieldToggleNames: e.fieldToggleNames, features: boolMap(e.features), fieldToggles: boolMap(e.fieldToggles) }, 'cache');
+          }
+        }
+        if (isObj(c.fv)) for (const k of Object.keys(c.fv)) if (typeof c.fv[k] === 'boolean' && !(k in featureValues)) featureValues[k] = c.fv[k];
       }
-      if (isObj(c.fv)) for (const k of Object.keys(c.fv)) if (typeof c.fv[k] === 'boolean') featureValues[k] = c.fv[k];
-    }
+    } catch {}
+    return added;
+  }
+  loadCache();
+  try {
+    addEventListener('pageshow', e => { if (e && e.persisted && loadCache()) emit('xbb-api-cache', { t: Date.now() }); });
+    addEventListener('storage', e => { if (e && e.key === LS_KEY && loadCache()) emit('xbb-api-cache', { t: Date.now() }); });
   } catch {}
 
   // ---------- harvesting from webpack ----------
@@ -457,7 +471,7 @@
   const enc = encodeURIComponent;
   async function execute(req) {
     const name = String(req.op || '');
-    if (!ops[name] || !ops[name].queryId) await ensureHarvest();
+    if (!ops[name] || !ops[name].queryId) { loadCache(); if (!ops[name] || !ops[name].queryId) await ensureHarvest(); }
     const o = ops[name];
     if (!o || !o.queryId) return { ok: false, status: 0, error: 'missing-op' };
     const csrf = session['x-csrf-token'] || cookieCsrf();

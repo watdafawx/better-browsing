@@ -232,6 +232,14 @@
     }
   });
 
+  // Reset missing-op breakers when another tab or a native page (BFCache Back) saves newly learned ops
+  function resetMissing() {
+    opNames = null;
+    for (const [op, st] of [...states.entries()]) if (st && st.state === 'open' && st.kind === 'missing-op') gql.breaker.reset(op);
+  }
+  document.addEventListener('xbb-api-cache', resetMissing);
+  addEventListener('pageshow', e => { if (e && e.persisted) resetMissing(); });
+
   // Opt-in: tapping runs while the Fast UI setting is on
   XBB.onSettings(s => want('setting', !!s.fastUi));
 })();

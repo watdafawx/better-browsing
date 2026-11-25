@@ -126,6 +126,14 @@
       }
     }
     const offTaps = opsAll.map(op => XBB.gql.onTap(op, onTap));
+    const onCacheRetry = () => {
+      if (dead || paused) return;
+      const m = M(tab);
+      if (m.banner && m.banner.kind === 'learn') { m.banner = null; request(tab, 'replace'); }
+    };
+    const onPageShow = e => { if (e && e.persisted) onCacheRetry(); };
+    document.addEventListener('xbb-api-cache', onCacheRetry);
+    addEventListener('pageshow', onPageShow);
 
     // ---------- our own requests ----------
     const blocking = () => !!(XBB.ext && XBB.ext.blocking());
@@ -260,6 +268,8 @@
       destroy() {
         dead = true;
         clearTimeout(waitT);
+        document.removeEventListener('xbb-api-cache', onCacheRetry);
+        removeEventListener('pageshow', onPageShow);
         offTaps.forEach(f => f());
         vl.destroy();
         el.remove();
