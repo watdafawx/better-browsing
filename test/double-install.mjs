@@ -3,6 +3,7 @@
 // sites. Run: npm run test:double  (BROWSER=firefox for Firefox)
 import { chromium, firefox } from 'playwright';
 import path from 'path';
+import fs from 'fs';
 
 const browserType = process.env.BROWSER === 'firefox' ? firefox : chromium;
 const COMBINED = path.resolve('dist/better-browsing.user.js');
@@ -13,6 +14,13 @@ const SITES = [
   { site: 'pinterest', url: 'https://www.pinterest.com/', css: 'pin-css' },
 ];
 const page = '<!doctype html><html><head><title>fixture</title></head><body><main style="height:2000px">fixture</main></body></html>';
+// The extension's content script, as far as claiming goes: userscript/claim.js's own bbClaim(site, 'ext'). The
+// real extension (ext/build.js) calls the same line first thing in <site>/content.js.
+const fakeExt = site => ({ content: `(() => {
+${fs.readFileSync('userscript/claim.js', 'utf8')}
+const go = () => bbClaim('${site}', 'ext');
+if (document.documentElement) go(); else new MutationObserver((_, o) => { if (document.documentElement) { o.disconnect(); go(); } }).observe(document, { childList: true });
+})();` });
 const browser = await browserType.launch();
 const checks = {};
 
@@ -20,7 +28,7 @@ const checks = {};
 async function open(files, seed) {
   const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
   if (seed) await ctx.addInitScript(seed);
-  for (const f of files) await ctx.addInitScript({ path: f });
+  for (const f of files) await ctx.addInitScript(typeof f === 'string' ? { path: f } : f);
   await ctx.route('**/*', r => r.request().resourceType() === 'document'
     ? r.fulfill({ status: 200, contentType: 'text/html', body: page })
     : r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
@@ -31,6 +39,7 @@ const state = (p, s) => p.evaluate(({ css, site }) => ({
   by: document.documentElement.getAttribute('data-bb-by'),
   site: document.documentElement.getAttribute('data-bb-site'),
   mark: localStorage.getItem('bb-split-' + site),
+  extMark: localStorage.getItem('bb-ext-' + site),
   notice: document.querySelector('.bb-split-notice')?.shadowRoot?.querySelector('.install')?.getAttribute('href') || '',
 }), s);
 const settle = p => p.waitForTimeout(400);
@@ -66,6 +75,38 @@ for (const s of SITES) {
     const b = await state(p, s);
     checks[`${s.site}: per-site script gone: the combined script drops the stale mark and runs again on the next load`] =
       a.styles === 0 && a.mark === null && b.styles === 1 && b.by === 'combined';
+    await ctx.close();
+  }
+  // the extension, installed next to the userscripts: it wins in either order, and the userscripts run nothing
+  {
+    const { ctx, p } = await open([fakeExt(s.site), COMBINED, own]);
+    await p.goto(s.url); await settle(p);
+    const a = await state(p, s);
+    checks[`${s.site}: extension first, then both userscripts: only the extension claims the page, no userscript runs, no notice`] =
+      a.styles === 0 && a.by === 'ext' && a.site === s.site && a.extMark === '1' && !a.notice;
+    await ctx.close();
+  }
+  {
+    const { ctx, p } = await open([COMBINED, own, fakeExt(s.site)]);
+    await p.goto(s.url); await settle(p);
+    const a = await state(p, s);
+    await p.reload(); await settle(p);
+    const b = await state(p, s);
+    checks[`${s.site}: userscripts first, then the extension: a userscript owns the first load, the extension leaves its mark`] =
+      a.styles === 1 && a.by !== 'ext' && a.extMark === '1';
+    checks[`${s.site}: userscripts first, then the extension: from the next load on the extension wins and the userscripts stand aside`] =
+      b.styles === 0 && b.by === 'ext' && b.extMark === '1';
+    await ctx.close();
+  }
+  // the extension was removed again: its stale mark must not keep the userscripts out for good
+  for (const [what, scripts] of [['per-site', [own]], ['combined', [COMBINED]]]) {
+    const { ctx, p } = await open(scripts, `try { localStorage.getItem('bb-ext-seeded') || (localStorage.setItem('bb-ext-${s.site}', '1'), localStorage.setItem('bb-ext-seeded', '1')); } catch {}`);
+    await p.goto(s.url); await settle(p);
+    const a = await state(p, s);
+    await p.reload(); await settle(p);
+    const b = await state(p, s);
+    checks[`${s.site}: extension gone (${what} script): the stale mark is dropped and the script runs again on the next load`] =
+      a.styles === 0 && a.extMark === null && b.styles === 1 && b.by === (what === 'combined' ? 'combined' : s.site);
     await ctx.close();
   }
   // the combined script alone: off Reddit it says once that the site has its own script

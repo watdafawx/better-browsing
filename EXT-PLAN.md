@@ -1,6 +1,6 @@
 # EXT-PLAN: one Better Browsing MV3 extension for Reddit, Instagram, X and Pinterest
 
-Status: plan only. Builds on `x/ext/` (build-ext.js, background.js, bridge.js, dev-server.js), which already ships X Fast UI as an MV3 extension with DNR blocking and hot reload.
+Status: P1 and the toolbar popup are built (`ext/`, `build-lib.js`, `npm run build:ext | dev:ext | test:ext`; see "Extension" in CLAUDE.md); `x/ext/` is gone, its pieces live in `ext/`. Still open: `userscript/mirror.js` + Export/Import (P2), `tabIds`-scoped DNR rules, Firefox verification and Pinterest Fast UI (P3). Differences from the text below: the popup sits in `popup/`, `bb-load-hls` replaces `bb-inject`, `x/ext/bridge.js` became `ext/bridge.js` + `ext/bridge-x.js`.
 
 ## 0. What exists, what that implies
 

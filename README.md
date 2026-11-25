@@ -110,6 +110,8 @@ npm test             # offline smoke test of the Reddit script (also test:instag
                      # test:headers, test:double, and test:all for everything in both browsers)
 ```
 
+The same source also builds one browser extension for all four sites (still being rounded off; the userscripts remain the supported install): `npm run build:ext`, then load `dist/better-browsing-ext/` unpacked (`chrome://extensions`, Developer mode, Load unpacked). `npm run dev:ext` rebuilds on every change and reloads it for you. The extension and an installed userscript never run twice on a page: the extension wins, and the userscript runs again on its own if the extension is removed.
+
 To try changes, install the site's `dist/better-browsing-<site>.user.js` in your userscript manager (drag the file onto its dashboard, or open it from a local web server). Edit the source files only; `dist/` is generated.
 
 ### Layout
