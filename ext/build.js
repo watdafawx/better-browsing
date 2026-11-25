@@ -96,6 +96,7 @@ ${join(mainFiles)}
   const contentJs = `(() => {
 ${join(['userscript/store.js', 'userscript/panel.js', 'userscript/claim.js', 'ext/prelude.js'])}
 ${x.skip ? `if (${x.skip}) return;\n` : ''}${claim}
+${s.themes ? read('userscript/themes.js') : ''}
 const PANEL_HTML = ${JSON.stringify(p.html)};
 const PANEL_CSS = ${JSON.stringify(p.css)};
 ${x.extra || ''}

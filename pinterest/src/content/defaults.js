@@ -26,7 +26,7 @@ PIN.DEFAULTS = {
 
   // Fast UI (beta, content/fast/): our own Home grid and pin viewer instead of Pinterest's page
   fastUi: false,              // the whole mode (opt-in)
-  fastUiTheme: 'auto',        // auto | black | dim | light
+  fastUiTheme: 'auto',        // auto | black | dim | light | a bbThemes id (hopper-dark, tokyo-night, … or custom-<name>)
   fastUiNativeButton: true,   // 'Native Pinterest' button in the top bar
   fastUiKeys: true            // Alt+Shift+P and the viewer's keys
 };

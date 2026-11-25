@@ -3,27 +3,27 @@
    sidebar. Layout and look: x/fast-ui-mock.html.
      XBB.fast.shell.mount()  -> { host, root, main, setStat(text), setView(view, state), setBadge(kind, n), applyTheme(),
                                  destroy() }   (idempotent)
-   Themes: Lights Out ("black"), Dim, Light; "auto" follows X's own night_mode cookie (0 light, 1 dim, 2 black).
+   Themes: the shared registry in userscript/themes.js (bbThemes): Lights Out ("black"), Dim, Light, the Hopper palettes
+   and imported JSON themes, chosen in the Appearance popover (bbThemes.mountPicker); "auto" follows X's own night_mode
+   cookie (0 light, 1 dim, 2 black). A Hopper theme sets the shadow root's variables inline and data-theme to black/light.
    Clicks are delegated on the shadow root: render.click first (actions, cards), then links: a route Fast UI owns
    stays here (XBB.fast.go: Home, a profile, a search, bookmarks), anything else is handed to X's own router.
    Notifications opens the popout over the current view, Messages the DM drawer; both keep the view and its scroll. */
 (() => {
   const { h } = XBB;
   const fast = XBB.fast;
-  const THEMES = [['auto', 'Auto', 'Same as X'], ['black', 'Lights out', ''], ['dim', 'Dim', ''], ['light', 'Light', '']];
-  const SW = { auto: 'linear-gradient(135deg,#000 50%,#fff 50%)', black: '#000', dim: '#15202b', light: '#fff' };
 
   function xTheme() {
     const m = /(?:^|;\s*)night_mode=(\d)/.exec(document.cookie || '');
     if (m) return m[1] === '0' ? 'light' : m[1] === '1' ? 'dim' : 'black';
     try { return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'black'; } catch { return 'black'; }
   }
-  const themeOf = s => { const v = s && s.fastUiTheme; return v === 'black' || v === 'dim' || v === 'light' ? v : xTheme(); };
+  const themeOf = s => bbThemes.classOf(s && s.fastUiTheme, xTheme());
 
   // Constructable stylesheet where the realm allows it (the page's own constructor in Firefox's content realm),
   // a <style> in the shadow root otherwise; checked, not assumed.
   function style(root) {
-    const css = XBB.FAST_CSS || '';
+    const css = (XBB.FAST_CSS || '') + bbThemes.CSS;
     try {
       const W = window.wrappedJSObject;
       const S = (W && W.CSSStyleSheet) || CSSStyleSheet;
@@ -47,12 +47,12 @@
     const I = (n, c) => fast.render.icon(n, c);
 
     const stat = h('span', { class: 'stat', 'aria-live': 'off' });
-    const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' },
-      THEMES.map(([k, label, title]) => {
-        const sw = h('span', { class: 'sw', 'aria-hidden': 'true' });
-        sw.style.background = SW[k];
-        return h('button', { type: 'button', 'data-theme-pick': k, title: title || label, 'aria-pressed': 'false' }, sw, h('span', { class: 'long' }, label));
-      }));
+    const picker = bbThemes.mountPicker(root, {
+      get: () => (XBB.settings && XBB.settings.fastUiTheme) || 'auto',
+      auto: xTheme, systemLabel: "Same as X's own theme", accent: '#1d9bf0',
+      onChange: id => { XBB.saveSetting('fastUiTheme', id); XBB.settings.fastUiTheme = id; applyTheme(); }
+    });
+    const seg = picker.el;
     const nativeBtn = h('button', { class: 'native-btn', type: 'button', 'data-xbb-to-native': '', title: "Show X's own page (Alt+Shift+X)" },
       I('ext'), h('span', { class: 'long' }, 'Native X'));
     const topbar = h('header', { class: 'topbar' },
@@ -90,10 +90,8 @@
 
     function applyTheme() {
       const s = XBB.settings || {};
-      const t = themeOf(s);
-      if (host.getAttribute('data-theme') !== t) host.setAttribute('data-theme', t);
-      const pick = s.fastUiTheme || 'auto';
-      for (const b of seg.querySelectorAll('[data-theme-pick]')) b.setAttribute('aria-pressed', String(b.dataset.themePick === pick));
+      bbThemes.apply(host, s.fastUiTheme || 'auto', { auto: xTheme(), site: 'x', page: true });
+      picker.update();
       nativeBtn.hidden = s.fastUiNativeButton === false;
     }
 
@@ -103,8 +101,6 @@
     root.addEventListener('click', e => {
       if (e.defaultPrevented || e.button !== 0) return;
       const t = firstEl(e);
-      const pick = t.closest('[data-theme-pick]');
-      if (pick) { XBB.saveSetting('fastUiTheme', pick.dataset.themePick); XBB.settings.fastUiTheme = pick.dataset.themePick; applyTheme(); return; }
       if (t.closest('[data-xbb-to-native]')) { e.preventDefault(); fast.toNative(); return; }
       if (t.closest('[data-xbb-settings]')) { e.preventDefault(); XBB.openSettings && XBB.openSettings(); return; }
       const nt = t.closest('[data-nt-open]');
@@ -209,4 +205,5 @@
   }
 
   fast.shell = { mount, get: () => shell, themeOf };
+  fast.themes = bbThemes;
 })();

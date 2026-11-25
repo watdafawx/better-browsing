@@ -69,6 +69,16 @@ One MV3 extension for all four sites, `dist/better-browsing-ext/` (Chrome; Firef
 - **Toolbar popup** (`ext/popup.*` becomes `popup/`): on a covered site it sends `bb-open-settings` to the tab (the content script calls `<ns>.openSettings`, Reddit `RBE.openSettingsInPage`) and closes; if the tab has no content script yet it shows a reload note; elsewhere it is a four-site hub (status dot, Open, Settings = open the site, then its panel, Allow = `permissions.request` where the browser did not grant the host).
 - The extension version is `ext/manifest.base.json` (`version`, `gecko`). Bump the patch for any change to a part, the minor for a permission or storage change.
 
+## Fast UI themes (`userscript/themes.js`, `bbThemes`)
+
+Shared by X and Pinterest Fast UI only: `SITES.<site>.themes` in `build-lib.js` inlines it at the top of that site's block (userscripts, combined bundle) and `ext/build.js` after the claim in that site's `content.js`; Reddit and Instagram do not carry it. `fast.themes` exposes it to tests.
+
+- Registry: Lights Out/Dim/Light ("classic": `black`, `dim`, `light`, still defined by each site's fast.css, so the picker sets only `data-theme` and clears inline variables) plus Hopper's palettes, hex for hex from `X:Devhoppersrcgpui	heme.rs` (13 dark incl. Hopper Dark, 6 light incl. Hopper Light). `auto` is not a theme: the site passes what it means (X's night_mode cookie, Pinterest's prefers-color-scheme). Setting `fastUiTheme` holds `auto`, a classic id, a Hopper id or `custom-<slug>`.
+- `bbThemes.apply(host, id, {auto, site, page})`: a Hopper/imported theme sets both sites' variables inline on the host (`--bg --bg-2 … --accent-soft` for X, `--bg2 --bg3 --fg --fg2 --fg3 --card --accent-h …` for Pinterest) and `data-theme` = black|light by mode, `data-bb-theme` = the id; with `page` it also sets `--bb-page-bg` + `data-bb-page` on `<html>`, which a rule in each site's content.css reads only while Fast UI owns the page (no flash outside the shadow root). A classic theme removes all of that.
+- `importJson(text)`: Hopper/gpui-component/Zed theme JSON (`{themes:[…]}`, an array or one theme; needs `colors.background` + `foreground`), stored in `localStorage['bb-custom-themes']` (max 24). Missing colours are derived.
+- The picker (`mountPicker`) is a `popover="auto"` inside the shell's shadow root; its styles are `bbThemes.CSS`, added to the shadow stylesheet by each shell's `style()`, so nothing of it is in fast.css. It handles its own clicks (`data-bt-*`, `data-theme-pick` on theme buttons, `aria-pressed` marks the active one); tests open it with `[data-bt-open]` first.
+- Changing the palettes: keep them equal to Hopper's theme.rs; the settings form's `<select data-key="fastUiTheme">` is filled from the registry by each `popup.js`.
+
 ## Reddit (`src/`)
 
 **Load order** is the `content_scripts` list in `manifest.base.json`. Every content script is an IIFE that hangs its API on the shared `RBE` global created in `defaults.js`. Later files may call earlier ones at load time; calls the other way must happen at runtime (for example `RBE.openLightbox?.()`).

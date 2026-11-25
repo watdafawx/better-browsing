@@ -82,7 +82,9 @@
     const on = enabled(), route = (ovs && ovs.base) || routeOf();
     return { on, route, owned: on && !escaped && !!route && !broken[route], escaped: on && escaped, broken: (route && broken[route]) || null };
   }
-  const themeOf = s => { const v = s && s.fastUiTheme; if (v === 'black' || v === 'dim' || v === 'light') return v; try { return matchMedia('(prefers-color-scheme: dark)').matches ? 'black' : 'light'; } catch { return 'light'; } };
+  const sysTheme = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches ? 'black' : 'light'; } catch { return 'light'; } };
+  // black | dim | light, the classes the stylesheets know; a Hopper / imported theme (userscript/themes.js) maps to black or light by its mode
+  const themeOf = s => bbThemes.classOf(s && s.fastUiTheme, sysTheme());
   let ovWas = false;
   function update() {
     const s = compute();

@@ -241,10 +241,22 @@ const FAST = { fastUi: true, fastUiTheme: 'black', videoMode: 'volume', videoVol
     && r.pageReq.every(q => q.handler === 'www/index.js' && q.ver === 'abc123' && q.src === '/' && q.opts.live_option === 'yes') && r.pageReq[0].opts.bookmarks[0] === 'bm1' && r.pageReq[1].opts.bookmarks[0] === 'bm2';
 
   // theme switch
+  await page.locator('pin-fast [data-bt-open]').click();     // the Appearance popover (userscript/themes.js)
   await page.locator('pin-fast [data-theme-pick="dim"]').click();
   await page.waitForTimeout(200);
   r.theme = await page.evaluate(() => ({ host: document.querySelector('pin-fast').getAttribute('data-theme'), saved: JSON.parse(localStorage.getItem('pin-userscript-settings')).settings.fastUiTheme, pressed: document.querySelector('pin-fast').shadowRoot.querySelector('[data-theme-pick="dim"]').getAttribute('aria-pressed') }));
   checks['the theme switcher applies and saves Dim'] = r.theme.host === 'dim' && r.theme.saved === 'dim' && r.theme.pressed === 'true';
+  // a Hopper palette from the picker: exact colours inline, data-theme by mode, html data-pin-theme + the page behind follow
+  await page.locator('pin-fast [data-bt-open]').click();
+  await page.locator('pin-fast [data-theme-pick="catppuccin-latte"]').click();
+  await page.waitForTimeout(250);
+  r.hop = await page.evaluate(() => { const h = document.querySelector('pin-fast'), sr = h.shadowRoot; return { t: h.getAttribute('data-theme'), id: h.getAttribute('data-bb-theme'), bg: getComputedStyle(h).backgroundColor, accent: h.style.getPropertyValue('--accent'), pin: document.documentElement.getAttribute('data-pin-theme'), saved: JSON.parse(localStorage.getItem('pin-userscript-settings')).settings.fastUiTheme, label: sr.querySelector('.bt-cur').textContent, n: sr.querySelectorAll('.bt-item').length }; });
+  checks['a Hopper palette (Catppuccin Latte) applies exactly, saves, and the picker lists 22 themes'] = r.hop.t === 'light' && r.hop.id === 'catppuccin-latte' && r.hop.bg === 'rgb(239, 241, 245)' && r.hop.accent === '#8839ef' && r.hop.pin === 'light' && r.hop.saved === 'catppuccin-latte' && r.hop.label === 'Catppuccin Latte' && r.hop.n === 22;
+  await page.locator('pin-fast [data-bt-open]').click();
+  await page.locator('pin-fast [data-theme-pick="dim"]').click();
+  await page.waitForTimeout(200);
+  r.back = await page.evaluate(() => { const h = document.querySelector('pin-fast'); return { t: h.getAttribute('data-theme'), inline: h.style.cssText, page: document.documentElement.hasAttribute('data-bb-page') }; });
+  checks['back to Dim leaves no inline variables or page colour'] = r.back.t === 'dim' && r.back.inline === '' && !r.back.page;
 
   // ---- viewer ----
   await page.evaluate(() => scrollTo(0, 0));

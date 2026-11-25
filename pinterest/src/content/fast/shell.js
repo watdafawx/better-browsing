@@ -4,7 +4,8 @@
      PIN.fast.shell.mount() -> { host, root, top, feed, applyTheme(), destroy() }   (idempotent; needs document.body)
      PIN.fast.patch(obj)    write settings the way popup.js does (read, merge, write back)
      .setRoute(route, url)  the rail's highlight, the search field's text and the feed's label for that view
-   Themes: Lights Out ("black"), Dim, Light; "auto" follows the system. Search is /search/pins/?q= in Fast UI
+   Themes: the shared registry in userscript/themes.js (bbThemes): Lights Out ("black"), Dim, Light, the Hopper palettes and
+   imported JSON themes, chosen in the Appearance popover (bbThemes.mountPicker); "auto" follows the system. Search is /search/pins/?q= in Fast UI
    (fast.go). Clicks are delegated on the shadow root: [data-go] links (authors, boards, tabs, the rail) are
    fast.go (the viewer closes first), [data-fv-native] is fast.toNative(href), [data-save] / [data-save-pick] are
    save.js; a middle or modified click stays the browser's (a new tab). */
@@ -27,7 +28,7 @@
   const icon = name => { const s = document.createElement('span'); s.style.display = 'contents'; s.innerHTML = SVG[name] || ''; return s; };
   fast.icon = icon;
   fast.SVG = SVG;
-  const THEMES = [['black', 'Lights Out'], ['dim', 'Dim'], ['light', 'Light']];
+  const sysTheme = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches ? 'black' : 'light'; } catch { return 'light'; } };
 
   fast.patch = async obj => {
     try {
@@ -40,7 +41,7 @@
   // Constructable stylesheet where the realm allows it (the page's own constructor in Firefox's content realm), a
   // <style> in the shadow root otherwise; checked, not assumed.
   function style(root) {
-    const css = PIN.FAST_CSS || '';
+    const css = (PIN.FAST_CSS || '') + bbThemes.CSS;
     try {
       const W = window.wrappedJSObject;
       const S = (W && W.CSSStyleSheet) || CSSStyleSheet;
@@ -74,8 +75,12 @@
       rb({ href: '#', 'data-act': 'settings', 'aria-label': 'Settings', role: 'button' }, 'gear', 'Settings (Alt+W)'));
 
     const q = h('input', { type: 'search', name: 'q', placeholder: 'Search pins', autocomplete: 'off', 'aria-label': 'Search pins', enterkeyhint: 'search' });
-    const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' },
-      THEMES.map(([k, label]) => h('button', { type: 'button', 'data-theme-pick': k, title: label, 'aria-pressed': 'false' }, icon(k), h('span', { class: 'lbl' }, label))));
+    const picker = bbThemes.mountPicker(root, {
+      get: () => (PIN.settings && PIN.settings.fastUiTheme) || 'auto',
+      auto: sysTheme, systemLabel: 'Light or dark as your system is', accent: '#e60023',
+      onChange: id => { PIN.settings.fastUiTheme = id; fast.patch({ fastUiTheme: id }); applyTheme(); }
+    });
+    const seg = picker.el;
     const nativeBtn = h('button', { class: 'native', type: 'button', 'data-pin-to-native': '', title: "Pinterest's own page (Alt+Shift+P)" },
       icon('ext'), h('span', { class: 'lbl' }, 'Native Pinterest'));
     const top = h('header', { class: 'top' },
@@ -96,7 +101,7 @@
     root.addEventListener('click', e => {
       if (e.defaultPrevented || e.button) return;
       const t = e.composedPath()[0];
-      const el = t && t.closest ? t.closest('[data-theme-pick],[data-pin-to-native],[data-act],[data-go],[data-fv-native],[data-save],[data-save-pick]') : null;
+      const el = t && t.closest ? t.closest('[data-pin-to-native],[data-act],[data-go],[data-fv-native],[data-save],[data-save-pick]') : null;
       if (!el) return;
       if (el.hasAttribute('data-save') || el.hasAttribute('data-save-pick')) {
         e.preventDefault(); e.stopPropagation();
@@ -113,7 +118,6 @@
         fast.go(href);
         return;
       }
-      if (el.hasAttribute('data-theme-pick')) { fast.patch({ fastUiTheme: el.getAttribute('data-theme-pick') }); return; }
       if (el.hasAttribute('data-pin-to-native')) { e.preventDefault(); fast.toNative(); return; }
       const act = el.getAttribute('data-act');
       if (e.ctrlKey || e.metaKey || e.shiftKey) return;           // a new tab: the browser's own job
@@ -133,10 +137,8 @@
 
     function applyTheme() {
       const s = PIN.settings;
-      const t = fast.themeOf(s);
-      if (host.getAttribute('data-theme') !== t) host.setAttribute('data-theme', t);
-      const pick = s.fastUiTheme === 'black' || s.fastUiTheme === 'dim' || s.fastUiTheme === 'light' ? s.fastUiTheme : t;
-      for (const b of seg.children) b.setAttribute('aria-pressed', String(b.getAttribute('data-theme-pick') === pick));
+      bbThemes.apply(host, s.fastUiTheme || 'auto', { auto: sysTheme(), site: 'pin', page: true });
+      picker.update();
       nativeBtn.hidden = s.fastUiNativeButton === false;
     }
     PIN.onSettings(applyTheme);
@@ -166,4 +168,5 @@
     return shell;
   }
   fast.shell = { mount, get: () => shell };
+  fast.themes = bbThemes;
 })();
