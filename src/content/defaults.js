@@ -27,6 +27,7 @@ RBE.DEFAULTS = {
   videoLoop: true,
   nativeControls: true,        // browser controls on the viewer and lightbox videos; off: click the video to play/pause
   redgifsTweaks: true,         // extension only: inside redgifs.com/ifr/* block click-to-open-site, play/pause, volume slider, download
+  redgifsVolume: 20,           // 0-100, separate volume level for Redgifs embeds
 
   // Spoilers / blur
   revealSpoilers: false,

@@ -216,6 +216,12 @@
       case 'bb-open-site-settings':
         openSiteSettings(msg.site).then(sendResponse, () => sendResponse({ ok: false }));
         return true;
+      case 'bb-pause-frames':
+        if (tabId != null && api.tabs && api.tabs.sendMessage) {
+          try { Promise.resolve(api.tabs.sendMessage(tabId, { type: 'bb-rg-pause' })).catch(() => {}); } catch {}
+        }
+        sendResponse({ ok: true });
+        return;
       case 'bb-dev-log':
       case 'xbb-dev-log':
         devLog(msg.level, msg.args, { site, url: tab && tab.url });

@@ -16,18 +16,22 @@
   let bc = null;
   try { bc = new BroadcastChannel('bb-redgifs-one'); } catch {}
 
-  let cfg = { redgifsTweaks: true, videoMode: 'volume', videoVolume: 40, videoLoop: true, videoPauseOffscreen: true, videoPauseOnHide: true };
+  let cfg = { redgifsTweaks: true, videoMode: 'volume', videoVolume: 10, redgifsVolume: 20, videoLoop: true, videoPauseOffscreen: true, videoPauseOnHide: true };
   let prefs = { volume: null, hd: true };
   let userMuted = false;
 
+  function parseRedditMirror(entry) {
+    try {
+      const raw = entry && entry.raw;
+      const parsed = raw ? JSON.parse(raw) : null;
+      const s = parsed && (parsed.sync && parsed.sync.settings || parsed.settings || parsed);
+      if (s && typeof s === 'object') Object.assign(cfg, s);
+    } catch {}
+  }
+
   function loadCfg() {
     return stGet([REDDIT_KEY, PREF_KEY]).then(r => {
-      try {
-        const raw = r[REDDIT_KEY] && r[REDDIT_KEY].raw;
-        const parsed = raw ? JSON.parse(raw) : null;
-        const s = parsed && (parsed.sync && parsed.sync.settings || parsed.settings || parsed);
-        if (s && typeof s === 'object') Object.assign(cfg, s);
-      } catch {}
+      parseRedditMirror(r[REDDIT_KEY]);
       if (r[PREF_KEY] && typeof r[PREF_KEY] === 'object') Object.assign(prefs, r[PREF_KEY]);
     });
   }
@@ -40,11 +44,15 @@
       .SoundButton { position: relative !important; }
       .bb-rg-vol {
         position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
-        width: 84px; height: 26px; margin-right: 6px; padding: 0 6px; border-radius: 999px;
-        background: rgba(15, 17, 24, .82); backdrop-filter: blur(8px);
-        display: none; align-items: center; z-index: 50;
+        padding: 10px 10px 10px 6px;
+        display: none; align-items: center; z-index: 60;
       }
-      .SoundButton:hover .bb-rg-vol, .bb-rg-vol:hover { display: flex; }
+      .SoundButton:hover .bb-rg-vol, .bb-rg-vol:hover, .bb-rg-vol.open { display: flex; }
+      .bb-rg-vol-pill {
+        width: 96px; height: 28px; padding: 0 8px; border-radius: 999px;
+        background: rgba(15, 17, 24, .88); border: 1px solid rgba(255, 255, 255, .14);
+        backdrop-filter: blur(8px); display: flex; align-items: center;
+      }
       .bb-rg-vol input { width: 100%; margin: 0; accent-color: #7eb8f0; cursor: pointer; }
       .bb-rg-dl {
         display: grid; place-items: center; width: 36px; height: 36px; margin-top: 6px;
@@ -57,7 +65,10 @@
     (document.head || document.documentElement).append(st);
   }
 
-  const wantVolume = () => Math.max(0, Math.min(1, prefs.volume != null ? +prefs.volume : (+cfg.videoVolume || 40) / 100));
+  const wantVolume = () => {
+    const def = cfg.redgifsVolume != null ? +cfg.redgifsVolume : (+cfg.videoVolume || 20);
+    return Math.max(0, Math.min(1, prefs.volume != null ? +prefs.volume : def / 100));
+  };
   const canSound = el => {
     try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {}
     return !!(navigator.userActivation && navigator.userActivation.hasBeenActive);
@@ -127,14 +138,29 @@
       }, true);
     }
 
-    // 3. Hover volume slider inside .SoundButton
+    // 3. Hover volume slider inside .SoundButton (zero-gap bridge + 260ms leave grace + stays open while dragging)
     if (soundBox && !soundBox.querySelector('.bb-rg-vol')) {
       const wrap = document.createElement('div');
       wrap.className = 'bb-rg-vol';
+      const pill = document.createElement('div');
+      pill.className = 'bb-rg-vol-pill';
       const slider = document.createElement('input');
       slider.type = 'range'; slider.min = '0'; slider.max = '1'; slider.step = '0.02';
       slider.value = String(wantVolume());
       slider.setAttribute('aria-label', 'Volume');
+      let hideT = 0, dragging = false;
+      const keepOpen = () => { clearTimeout(hideT); wrap.classList.add('open'); };
+      const maybeClose = () => {
+        clearTimeout(hideT);
+        if (dragging) return;
+        hideT = setTimeout(() => { if (!dragging) wrap.classList.remove('open'); }, 260);
+      };
+      soundBox.addEventListener('pointerenter', keepOpen);
+      soundBox.addEventListener('pointerleave', maybeClose);
+      wrap.addEventListener('pointerenter', keepOpen);
+      wrap.addEventListener('pointerleave', maybeClose);
+      slider.addEventListener('pointerdown', e => { e.stopPropagation(); dragging = true; keepOpen(); });
+      window.addEventListener('pointerup', () => { if (dragging) { dragging = false; maybeClose(); } });
       slider.addEventListener('input', e => {
         const v = +e.target.value;
         userMuted = v === 0;
@@ -142,11 +168,12 @@
         video.muted = v === 0;
         prefs.volume = v;
         stSet({ [PREF_KEY]: prefs });
-        if (v > 0) document.querySelector('.soundOff, [aria-label="Sound Off"]')?.click();
-        else document.querySelector('.soundOn, [aria-label="Sound On"]')?.click();
+        if (v > 0) document.querySelector('.SoundButton[aria-label="Sound Off"], .soundOff, [aria-label="Sound Off"]')?.click();
+        else document.querySelector('.SoundButton[aria-label="Sound On"], .soundOn, [aria-label="Sound On"]')?.click();
       });
       for (const ev of ['click', 'pointerdown', 'mouseup']) wrap.addEventListener(ev, e => e.stopPropagation());
-      wrap.append(slider);
+      pill.append(slider);
+      wrap.append(pill);
       soundBox.append(wrap);
       video.addEventListener('volumechange', () => {
         if (!video.muted) slider.value = String(video.volume);
@@ -218,7 +245,29 @@
     }
 
     if (cfg.videoPauseOnHide !== false) {
-      document.addEventListener('visibilitychange', () => { if (document.hidden && !video.paused) video.pause(); });
+      const pauseNow = () => { if (!video.paused) video.pause(); };
+      document.addEventListener('visibilitychange', () => { if (document.hidden) pauseNow(); });
+      window.addEventListener('blur', () => setTimeout(() => { if (!document.hasFocus()) pauseNow(); }, 60));
+      window.addEventListener('message', e => { if (e.data && e.data.bbRgPause) pauseNow(); });
+      if (api.runtime && api.runtime.onMessage) {
+        api.runtime.onMessage.addListener(msg => { if (msg && msg.type === 'bb-rg-pause') pauseNow(); });
+      }
+    }
+    // Live-sync when user adjusts Redgifs volume in Reddit Settings
+    if (api.storage && api.storage.onChanged) {
+      api.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes[REDDIT_KEY]) return;
+        const oldRg = cfg.redgifsVolume;
+        parseRedditMirror(changes[REDDIT_KEY].newValue);
+        if (cfg.redgifsVolume !== oldRg && cfg.redgifsVolume != null) {
+          prefs.volume = null;
+          stSet({ [PREF_KEY]: prefs });
+          const v = Math.max(0, Math.min(1, +cfg.redgifsVolume / 100));
+          video.volume = v;
+          const sl = document.querySelector('.bb-rg-vol input');
+          if (sl) sl.value = String(v);
+        }
+      });
     }
     if (cfg.videoPauseOffscreen !== false) {
       new IntersectionObserver(entries => {

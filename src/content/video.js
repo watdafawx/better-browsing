@@ -14,6 +14,8 @@
   const pauseAway = () => {
     if (!away()) return;
     for (const v of known) { if (!v.isConnected) known.delete(v); else if (!v.paused && document.pictureInPictureElement !== v) v.pause(); }
+    if (RBE.ext && RBE.ext.send) RBE.ext.send({ type: 'bb-pause-frames' });
+    for (const f of frameSrc.keys()) { try { f.contentWindow?.postMessage({ bbRgPause: true }, '*'); } catch {} }
   };
   document.addEventListener('visibilitychange', () => { if (document.hidden) pauseAway(); });
   addEventListener('blur', () => setTimeout(() => { if (!document.hasFocus()) { blurred = true; pauseAway(); } }));
