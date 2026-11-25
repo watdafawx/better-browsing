@@ -13,6 +13,8 @@ const { execFileSync } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const LOG_FILE = path.join(ROOT, 'dist', 'bb-ext-dev.log');
 const PORT = Number(process.env.BB_DEV_PORT) || 47910;   // the extension talks to 47910; the override is for tests
+// Optional extra mirror target (e.g. main project checkout when developing inside a worktree)
+const MIRROR_OUT = process.env.BB_EXT_MIRROR || '';
 
 let buildId = String(Date.now());
 let rebuildTimer = 0;
@@ -22,6 +24,9 @@ function rebuild(reason) {
   const t0 = Date.now();
   try {
     execFileSync(process.execPath, [path.join(__dirname, 'build.js'), '--dev', `--build-id=${id}`], { cwd: ROOT, stdio: 'inherit' });
+    if (MIRROR_OUT) {
+      execFileSync(process.execPath, [path.join(__dirname, 'build.js'), '--dev', `--build-id=${id}`, `--out=${MIRROR_OUT}`], { cwd: ROOT, stdio: 'inherit' });
+    }
     buildId = id;   // only a build that worked gets announced: the extension must not reload into a broken one
     appendLog({ t: Date.now(), level: 'build', args: ['rebuilt', reason || 'manual', 'id=' + id, (Date.now() - t0) + 'ms'], meta: { site: 'dev' } });
   } catch (e) {

@@ -17,9 +17,11 @@ process.chdir(ROOT);   // build-lib.js reads paths relative to the repo root
 const lib = require('../build-lib.js');
 const { read, join, minCss, scripts, panel, hlsSource, SITES, partVersion } = lib;
 
-const OUT = path.join(ROOT, 'dist', 'better-browsing-ext');
 const args = process.argv.slice(2);
 const DEV = args.includes('--dev');
+const FIREFOX = args.includes('--firefox');
+const outArg = args.find(a => a.startsWith('--out='));
+const OUT = outArg ? path.resolve(outArg.slice('--out='.length)) : path.join(ROOT, 'dist', 'better-browsing-ext');
 const idArg = args.find(a => a.startsWith('--build-id='));
 const BUILD_ID = idArg ? idArg.slice('--build-id='.length) : String(Date.now());
 const KEYS = ['reddit', 'instagram', 'x', 'pinterest'];
@@ -136,7 +138,7 @@ function build() {
       { ...common, js: [`${k}/content.js`], css: [`${k}/content.css`] }
     ];
   });
-  const host_permissions = [...new Set([...KEYS.flatMap(k => SITES[k].match), 'https://api.x.com/*', 'https://abs.twimg.com/*'])];
+  const host_permissions = [...new Set([...KEYS.flatMap(k => SITES[k].match), 'https://api.x.com/*', 'https://abs.twimg.com/*', 'https://s.pinimg.com/*'])];
   if (DEV) host_permissions.push('http://127.0.0.1:47910/*');
   const manifest = {
     manifest_version: 3,
@@ -147,11 +149,11 @@ function build() {
     action: { default_title: 'Better Browsing', default_popup: 'popup/popup.html', default_icon: { 16: 'icons/icon16.png', 32: 'icons/icon32.png' } },
     permissions: ['declarativeNetRequest', 'scripting', 'storage', 'activeTab', ...(DEV ? ['alarms'] : [])],
     host_permissions,
-    // Chrome uses the service worker and ignores `scripts`; Firefox does the opposite
-    background: { service_worker: 'background.js', scripts: ['background.js'] },
-    content_scripts,
-    browser_specific_settings: { gecko: base.gecko }
+    // Chrome MV3 rejects `background.scripts`; pass --firefox for a Firefox MV3 manifest
+    background: FIREFOX ? { scripts: ['background.js'] } : { service_worker: 'background.js' },
+    content_scripts
   };
+  if (FIREFOX) manifest.browser_specific_settings = { gecko: base.gecko };
   write('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 
   const kb = f => Math.round(fs.statSync(path.join(OUT, f)).size / 1024);
