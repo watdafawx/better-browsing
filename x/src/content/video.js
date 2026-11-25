@@ -247,7 +247,8 @@
         v.removeEventListener('ended', onEnded, true);
       }
     },
-    // Before a node that holds videos is thrown away or reused: stop them and drop what they loaded
+    // Before a node that holds videos is thrown away or reused: pause immediately, defer heavy v.load()
+    // media-pipeline teardown out of the scroll rAF so scrolling past videos never stalls a frame.
     destroy(root) {
       if (!root) return;
       const list = root instanceof HTMLVideoElement ? [root] : [...root.querySelectorAll('video')];
@@ -256,8 +257,8 @@
         try { quiet(v); } catch {}
         v.removeAttribute('src');
         v.querySelectorAll('source').forEach(s => s.remove());
-        try { v.load(); } catch {}
       }
+      if (list.length) setTimeout(() => { for (const v of list) { try { if (!v.isConnected) v.load(); } catch {} } }, 0);
     },
     evaluate: () => schedule(0),
     // An element (a lightbox or drawer <dialog>): videos outside it pause and nothing outside it starts, until scope(null)

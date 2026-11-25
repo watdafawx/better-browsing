@@ -118,10 +118,10 @@ main { min-width: 0; border-inline: 1px solid var(--line); min-height: calc(100v
 
 /* ---------- the virtual list ---------- */
 .vlist { position: relative; overflow-anchor: none; contain: layout style; }
-.vlist > .row { position: absolute; top: 0; left: 0; right: 0; contain: layout style; }
+.vlist > .row { position: absolute; top: 0; left: 0; right: 0; contain: layout style paint; will-change: transform; }
 
 /* ---------- tweet card ---------- */
-.tweet { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; contain: layout style paint; transition: background-color .12s; position: relative; }
+.tweet { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; contain: layout style paint; position: relative; }
 .tweet:hover { background: var(--bg-hover); }
 .tweet:focus-visible { outline-offset: -2px; }
 .tweet.thread-next { border-bottom: 0; }

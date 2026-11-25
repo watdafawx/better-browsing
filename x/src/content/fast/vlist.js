@@ -59,10 +59,13 @@
     let rows = [], heights = new Map(), paused = false, dead = false;
     const mounted = new Map();          // key -> node
     const pool = [];
-    let raf = 0, nearEndAsked = 0;
+    let raf = 0, nearEndAsked = 0, lastFirst = -1, lastLast = -2, lastTotal = -1, dirty = true;
 
     const est = r => Math.max(40, heights.get(r.key) || +opts.estimate(r) || 120);
-    const viewTop = () => -el.getBoundingClientRect().top;
+    // Cache document-relative top of `el` so scroll rAF never forces synchronous layout via getBoundingClientRect()
+    let listTop = 0, topDirty = true;
+    const measureTop = () => { listTop = el.getBoundingClientRect().top + (scrollY || 0); topDirty = false; };
+    const viewTop = () => { if (topDirty) measureTop(); return (scrollY || 0) - listTop; };
 
     function release(key) {
       const node = mounted.get(key);
@@ -95,10 +98,16 @@
       if (dead || paused) return;
       const n = rows.length;
       const total = fw.total();
-      el.style.height = Math.ceil(total) + 'px';
       const vt = viewTop(), H = innerHeight || 800;
       const first = n ? fw.find(Math.max(0, vt - H * overscan)) : 0;
       const last = n ? fw.find(Math.max(0, vt + H + H * overscan)) : -1;
+      // Fast path: 95%+ of scroll frames stay within the same [first, last] window — zero DOM/alloc work
+      if (!dirty && first === lastFirst && last === lastLast && total === lastTotal) {
+        if (n && opts.onNearEnd && total - (vt + H) < 3 * H && nearEndAsked !== n) { nearEndAsked = n; try { opts.onNearEnd(); } catch (e) { console.error('[XBB fast]', e); } }
+        return;
+      }
+      dirty = false; lastFirst = first; lastLast = last;
+      if (total !== lastTotal) { lastTotal = total; el.style.height = Math.ceil(total) + 'px'; }
       for (const [key, node] of [...mounted]) {
         const i = node._i;
         if (i < first || i > last || !rows[i] || rows[i].key !== key) release(key);
@@ -159,8 +168,9 @@
     });
 
     const onScroll = () => schedule();
+    const onResize = () => { topDirty = true; schedule(); };
     addEventListener('scroll', onScroll, { passive: true });
-    addEventListener('resize', onScroll, { passive: true });
+    addEventListener('resize', onResize, { passive: true });
 
     const list = {
       setRows(next, hs) {
@@ -169,10 +179,12 @@
         if (hs) heights = hs;
         fw.build(rows.map(est));
         nearEndAsked = 0;
+        topDirty = true; dirty = true; lastFirst = -1; lastLast = -2;
         layout();
       },
       append(more) {
         for (const r of more) { rows.push(r); fw.push(est(r)); }
+        dirty = true;
         schedule();
       },
       // New rows on top. The row at the top of the viewport stays put (the caller scrolls to the top when the user
@@ -186,6 +198,7 @@
         fw.build(rows.map(est));
         for (const node of mounted.values()) node._i += more.length;
         if (anchor >= 0) scrollBy(0, fw.prefix(anchor + more.length) - off - vt);
+        dirty = true;
         layout();
       },
       refresh: schedule,
@@ -200,7 +213,7 @@
         dead = true;
         cancelAnimationFrame(raf);
         removeEventListener('scroll', onScroll);
-        removeEventListener('resize', onScroll);
+        removeEventListener('resize', onResize);
         for (const k of [...mounted.keys()]) release(k);
         ro.disconnect();
       }
