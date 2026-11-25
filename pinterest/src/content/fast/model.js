@@ -14,7 +14,11 @@
                                      plus the label fallback (core.js's text match) on grid_title_label / attribution
      PIN.model.extractFeed(data)     -> { pins, promoted, dropped }: an allowlist (type 'pin', or no type and an
                                      `images` map); modules, carousels, shopping units and ads never reach the grid
-     PIN.model.isFeed(data)          the schema guard: an array of objects (empty is fine), or { results: [...] } */
+     PIN.model.isFeed(data)          the schema guard: an array of objects (empty is fine), or { results: [...] }
+     PIN.model.normalizeUser(raw)    { id, username, name, avatar, bio, website, followers, following, pins, boards } | null
+     PIN.model.normalizeBoard(raw)   { id, name, url ('/<user>/<slug>/' or ''), cover, description, pins, sections,
+                                     followers, privacy, secret, owner: { id, username, name, avatar } } | null
+     PIN.model.extractBoards(data)   -> { boards, recent, dropped }; isBoards(data) its schema guard */
 (() => {
   const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
   const str = v => (typeof v === 'string' ? v : typeof v === 'number' && isFinite(v) ? String(v) : '');
@@ -161,5 +165,78 @@
     return m;
   };
 
-  PIN.model = { normalizePin, isPromotedData, extractFeed, isFeed, merge, sizes };
+  // ---------- M2: users and boards ----------
+  function normalizeUser(raw) {
+    try {
+      const u = obj(raw);
+      if (!u) return null;
+      const username = str(u.username);
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(username)) return null;
+      return {
+        id: str(u.id), username,
+        name: (str(u.full_name) || username).trim().slice(0, 200),
+        avatar: url(u.image_xlarge_url) || url(u.image_large_url) || url(u.image_medium_url) || url(u.image_small_url),
+        bio: str(u.about).trim().slice(0, 1000),
+        website: url(u.website_url),
+        followers: num(u.follower_count), following: num(u.following_count),
+        pins: num(u.pin_count), boards: num(u.board_count)
+      };
+    } catch { return null; }
+  }
+  const BOARD_URL = /^\/[A-Za-z0-9_]{1,64}\/[^/?#_][^/?#]*\/$/;
+  function normalizeBoard(raw) {
+    try {
+      const b = obj(raw);
+      if (!b) return null;
+      const id = str(b.id);
+      if (!/^\d{1,24}$/.test(id)) return null;
+      const owner = obj(b.owner) || {};
+      let u = str(b.url);
+      if (u && !u.endsWith('/')) u += '/';
+      if (!BOARD_URL.test(u)) {
+        const slug = str(b.slug);
+        u = str(owner.username) && slug ? '/' + str(owner.username) + '/' + slug + '/' : '';
+        if (!BOARD_URL.test(u)) u = '';
+      }
+      const imgs = get(b, 'images', '170x');
+      const cover = url(b.image_cover_hd_url) || url(b.image_cover_url) || url(get(b, 'cover_images', '400x300', 'url'))
+        || url(get(b, 'cover_images', '222x', 'url')) || url(get(b, 'cover_pin', 'image_url'))
+        || (Array.isArray(imgs) ? url(get(imgs[0], 'url')) : '') || url(b.image_thumbnail_url);
+      const privacy = str(b.privacy);
+      return {
+        id, url: u, cover,
+        name: (str(b.name) || 'Board').trim().slice(0, 200),
+        description: str(b.description).trim().slice(0, 2000),
+        pins: num(b.pin_count), sections: num(b.section_count), followers: num(b.follower_count),
+        privacy, secret: privacy === 'secret' || privacy === 'protected',
+        owner: { id: str(owner.id), username: str(owner.username), name: str(owner.full_name) || str(owner.username), avatar: url(owner.image_medium_url) || url(owner.image_small_url) }
+      };
+    } catch { return null; }
+  }
+  // a list of boards: an array, { results }, or the picker's { all_boards, boards } (+ recent_boards)
+  const boardList = data => Array.isArray(data) ? data : !obj(data) ? null
+    : Array.isArray(data.results) ? data.results : Array.isArray(data.all_boards) ? data.all_boards : Array.isArray(data.boards) ? data.boards : null;
+  const isBoards = data => !!boardList(data);
+  function extractBoards(data) {
+    const out = { boards: [], recent: [], dropped: 0 };
+    try {
+      const take = list => {
+        const res = [];
+        for (const raw of list || []) {
+          const b = obj(raw);
+          // allowlist: boards only (no type, or type 'board'); "create a board" tiles and stories are dropped
+          if (!b || !(b.type == null || b.type === 'board')) { out.dropped++; continue; }
+          const n = normalizeBoard(b);
+          if (n) res.push(n); else out.dropped++;
+        }
+        return res;
+      };
+      out.boards = take(boardList(data));
+      const rec = obj(data) && (Array.isArray(data.recent_boards) ? data.recent_boards : Array.isArray(data.recent) ? data.recent : null);
+      if (rec) out.recent = take(rec);
+    } catch {}
+    return out;
+  }
+
+  PIN.model = { normalizePin, isPromotedData, extractFeed, isFeed, merge, sizes, normalizeUser, normalizeBoard, extractBoards, isBoards };
 })();

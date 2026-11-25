@@ -35,6 +35,8 @@ const runs = [
   ['Pinterest, Firefox', ...node('test/pinterest-offline.mjs'), { BROWSER: 'firefox' }],
   ['Pinterest, Chromium, Fast UI', ...node('test/pinterest-fast-offline.mjs')],
   ['Pinterest, Firefox, Fast UI', ...node('test/pinterest-fast-offline.mjs'), { BROWSER: 'firefox' }],
+  ['Pinterest, Chromium, Fast UI M2', ...node('test/pinterest-fast-m2-offline.mjs')],
+  ['Pinterest, Firefox, Fast UI M2', ...node('test/pinterest-fast-m2-offline.mjs'), { BROWSER: 'firefox' }],
 ];
 
 // Shared checks always run. Site changes also exercise that site inside the combined bundle.

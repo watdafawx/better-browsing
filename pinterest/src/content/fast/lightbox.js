@@ -10,7 +10,9 @@
    (PIN.setupOwnVideo); an idea pin steps through its pages before moving to the next pin. The side panel has the
    pin's text, author and stats (PinResource/get, merged over the grid pin), the comments (UnifiedCommentsResource,
    keyed by the aggregated id) and "More like this" (RelatedModulesResource). Any of those failing is an inline note
-   here, never a reason to hand Home back to Pinterest. */
+   here, never a reason to hand Home back to Pinterest. The top bar has Save (save.js: the last board, the chevron
+   the picker); the author and the board are Fast UI links (the viewer closes, then the profile / board view).
+   Keys: Esc closes, ←/→ and j/k step, z zooms, s saves. */
 (() => {
   const { h } = PIN;
   const fast = PIN.fast;
@@ -90,6 +92,8 @@
     const copy = h('button', { class: 'ibtn', type: 'button', 'data-lb-act': 'copy', 'aria-label': 'Copy link', title: 'Copy link' }, ico('copy'));
     const open = h('a', { class: 'ibtn', 'data-lb-act': 'open', 'aria-label': 'Open on Pinterest', title: 'Open on Pinterest', href: '/' }, ico('ext'));
     const close = h('button', { class: 'ibtn', type: 'button', 'data-lb-act': 'close', 'aria-label': 'Close (Esc)', title: 'Close (Esc)' }, ico('close'));
+    const savePick = h('button', { class: 'savepick lbpick', type: 'button', 'data-save-pick': '', 'aria-label': 'Choose a board', title: 'Choose a board' }, h('span', { class: 'chev', 'aria-hidden': 'true' }));
+    const save = h('button', { class: 'savepill', type: 'button', 'data-save': '' }, 'Save');
     const box = h('div', { class: 'st-box' });
     const prev = h('button', { class: 'st-nav prev', type: 'button', 'data-lb-act': 'prev', 'aria-label': 'Previous' }, ico('prev'));
     const next = h('button', { class: 'st-nav next', type: 'button', 'data-lb-act': 'next', 'aria-label': 'Next' }, ico('next'));
@@ -99,10 +103,10 @@
     const rgrid = h('div', { class: 'rgrid' });
     const relSec = h('section', { class: 'related' }, h('h3', null, 'More like this'), rgrid);
     dlg = h('dialog', { class: 'lb', 'aria-label': 'Pin' },
-      h('div', { class: 'lb-head' }, back, crumb, copy, open, close),
+      h('div', { class: 'lb-head' }, back, crumb, h('div', { class: 'lb-save' }, savePick, save), copy, open, close),
       h('div', { class: 'lb-body' }, stage, side), relSec);
     sh.root.append(dlg);
-    ui = { back, crumb, open, box, prev, next, rend, stage, side, rgrid, relSec };
+    ui = { back, crumb, open, save, savePick, box, prev, next, rend, stage, side, rgrid, relSec };
 
     // keys on window (capture): a click on the stage can leave the focus outside the dialog's subtree
     addEventListener('keydown', e => { if (dlg && dlg.open) onKey(e); }, true);
@@ -149,7 +153,9 @@
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       if (a && a.tagName === 'VIDEO' && a.controls) return;    // seeking
       e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1);
-    } else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); toggleZoom(); }
+    } else if (e.key === 'j' || e.key === 'k') { e.preventDefault(); step(e.key === 'j' ? 1 : -1); }
+    else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); toggleZoom(); }
+    else if ((e.key === 's' || e.key === 'S') && cur && fast.save) { e.preventDefault(); e.stopPropagation(); fast.save.quick(cur.id, ui.save); }
   }
   function onClick(e) {
     const t = e.composedPath()[0];
@@ -288,12 +294,20 @@
     if (p.link) kids.push(h('a', { class: 'dom', href: p.link, target: '_blank', rel: 'noopener noreferrer nofollow' }, p.domain || p.link));
     kids.push(h('a', { class: 'openbtn', href: '/pin/' + p.id + '/', 'data-lb-act': 'open' }, 'Open on Pinterest'));
     const name = p.author.name || p.author.username;
-    if (name) kids.push(h('div', { class: 'author' }, av(name, p.author.avatar), h('div', { class: 'nm' }, h('b', null, name), p.author.username ? h('small', null, '@' + p.author.username) : null)));
+    const uhref = p.author.username && fast.routeOf('/' + p.author.username + '/') === 'profile' ? '/' + p.author.username + '/' : null;
+    if (name) kids.push(h('div', { class: 'author' }, av(name, p.author.avatar), h('div', { class: 'nm' },
+      uhref ? h('a', { class: 'olink', href: uhref, 'data-go': '', 'data-lb-author': '' }, h('b', null, name)) : h('b', null, name),
+      p.author.username ? h('small', null, '@' + p.author.username) : null)));
     if (p.description) kids.push(h('p', { class: 'desc' }, p.description));
     const st = [];
     if (p.saveCount) st.push(h('span', null, num(p.saveCount) + ' saves'));
     if (p.commentCount) st.push(h('span', null, num(p.commentCount) + ' comments'));
-    if (p.board && p.board.name) st.push(h('span', null, 'in ' + p.board.name));
+    if (p.board && p.board.name) {
+      let bp = '';
+      try { bp = p.board.url ? new URL(p.board.url, location.origin).pathname : ''; } catch {}
+      if (bp && !bp.endsWith('/')) bp += '/';
+      st.push(h('span', null, 'in ', fast.routeOf(bp) === 'board' ? h('a', { class: 'olink', href: bp, 'data-go': '', 'data-lb-board': '' }, p.board.name) : p.board.name));
+    }
     if (st.length) kids.push(h('div', { class: 'stats' }, st));
     const cmBox = h('div', { class: 'cms', 'data-comments': '' }, h('div', { class: 'note' }, 'Loading comments…'));
     kids.push(h('div', { class: 'cm-h' }, 'Comments', p.commentCount ? h('small', null, num(p.commentCount)) : null), cmBox);
@@ -365,8 +379,11 @@
     const base = known.get(id);
     if (!dlg.open) { try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); } }
     ui.back.hidden = c.depth < 2;
-    ui.crumb.replaceChildren(h('span', { class: 'crumb' }, c.depth > 1 ? 'More like this' : 'Home'));
+    ui.crumb.replaceChildren(h('span', { class: 'crumb' }, c.depth > 1 ? 'More like this' : (fast.LABEL[fast.state().route] || 'Home')));
     ui.open.setAttribute('href', '/pin/' + id + '/');
+    ui.save.setAttribute('data-save-id', id);
+    ui.savePick.setAttribute('data-save-id', id);
+    if (fast.save) fast.save.paint(ui.save, id);
     page = 0;
     dlg.scrollTop = 0;
     if (base) {

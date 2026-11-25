@@ -27,10 +27,15 @@
       const badge = h('span', { class: 'badge' }, ico, txt);
       const media = h('a', { class: 'media', draggable: 'false' }, img, badge);
       const av = h('span', { class: 'av', 'aria-hidden': 'true' }), nm = document.createTextNode('');
-      const t = h('div', { class: 't' }), by = h('div', { class: 'by' }, av, h('span', null, nm));
+      const t = h('div', { class: 't' }), byl = h('a', { class: 'byl', 'data-go': '' }, av, h('span', null, nm));
+      const by = h('div', { class: 'by' }, byl);
       const foot = h('div', { class: 'foot' }, t, by);
-      const node = h('article', { class: 'card' }, media, foot);
-      node._c = { img, badge, ico, txt, media, av, nm, t, foot, kind: '' };
+      // save.js: the quick Save pill (last board) and the picker's chevron, over the picture (not inside the link)
+      const save = h('button', { class: 'save', type: 'button', 'data-save': '' }, 'Save');
+      const pick = h('button', { class: 'savepick', type: 'button', 'data-save-pick': '', 'aria-label': 'Choose a board', title: 'Choose a board' }, h('span', { class: 'chev', 'aria-hidden': 'true' }));
+      const tools = h('div', { class: 'stools' }, pick, save);
+      const node = h('article', { class: 'card' }, media, tools, foot);
+      node._c = { img, badge, ico, txt, media, av, nm, t, foot, byl, save, pick, kind: '' };
       return node;
     },
     fill(node, pin, rect) {
@@ -38,6 +43,7 @@
       if (node._pin === pin && node._w === rect.w && node._h === rect.h) return;
       node._pin = pin; node._w = rect.w; node._h = rect.h;
       node.dataset.id = pin.id;
+      node.classList.toggle('kfocus', !!(fast.keys && fast.keys.focusId() === pin.id));
       node.style.width = rect.w + 'px';
       node.style.height = rect.h + 'px';
       const fh = footer(pin);
@@ -50,7 +56,11 @@
       const kind = pin.kind === 'video' ? 'video' : pin.kind === 'story' && pin.storyPages && pin.storyPages.length > 1 ? 'story' : '';
       if (c.kind !== kind) { c.kind = kind; c.ico.innerHTML = kind === 'video' ? PLAY : kind === 'story' ? PAGES : ''; c.badge.classList.toggle('show', !!kind); }
       c.txt.data = kind === 'video' ? (pin.video.dur ? fmtDur(pin.video.dur) : 'Video') : kind === 'story' ? String(pin.storyPages.length) : '';
+      c.save.setAttribute('data-save-id', pin.id);
+      c.pick.setAttribute('data-save-id', pin.id);
+      if (fast.save) fast.save.paint(c.save, pin.id);
       c.foot.hidden = !fh;
+      if (pin.author.username) c.byl.setAttribute('href', '/' + pin.author.username + '/'); else c.byl.removeAttribute('href');
       if (fh) {
         if (c.t.textContent !== pin.title) c.t.textContent = pin.title;
         const name = pin.author.name || pin.author.username || '';
@@ -66,6 +76,7 @@
       node._pin = null;
       node._c.img.removeAttribute('src');
       node.removeAttribute('data-id');
+      node.classList.remove('kfocus', 'saved');
     }
   };
   fast.card = card;
@@ -194,7 +205,9 @@
       indexOf: id => items.findIndex(p => p.id === id),
       mounted: () => mounted.size,
       nodes: () => [...mounted.values()],
-      masonry: m,
+      // the document y of item i (keys.js scrolls a card into view with it)
+      docY: i => { if (topDirty) measure(); const r = m.rect(i); return r ? listTop + r.y : 0; },
+      el, masonry: m,
       destroy() {
         dead = true;
         cancelAnimationFrame(raf); cancelAnimationFrame(rz);

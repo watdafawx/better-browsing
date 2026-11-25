@@ -11,6 +11,7 @@ Four userscripts, one per site (`dist/better-browsing-<reddit|instagram|x|pinter
 - `npm run test:x:overlay` (`test/x-fast-overlay-offline.mjs`): the X Fast UI overlays (M3): lightbox (4 photos, wheel/keys, zoom, video, actions), thread drawer (instant paint, Relay TweetDetail ancestors/replies, more, stack, Back/Esc/backdrop with the scroll kept, the tap, X never told), the missing-op fallback that never fails Home, and the keys; `BROWSER=firefox` for Firefox. Part of `test:all`.
 - `npm run test:x:m4` (`test/x-fast-m4-offline.mjs`): the X Fast UI views (M4) on the same kind of mock x.com plus a fake REST backend: the notifications popout (REST legacy shape, GraphQL Relay fallback, tapped badge, a post opens the drawer with the scroll kept), the messages drawer (inbox, conversation, optimistic send with rollback, encrypted banner, XChat button), profile (header, tabs, Follow with rollback, Back), search (tabs, People cards, drawer), bookmarks (pagination), and one Zero-JS run without the optional ops (banners, 0 ms fetches, `XBB.ext.setBlock` on Open on X, Home never failed); `BROWSER=firefox` for Firefox. Part of `test:all`.
 - `npm run test:pinterest:fast` (`test/pinterest-fast-offline.mjs`): Pinterest Fast UI (M1): the masonry engine against a brute-force reference in Node, then a mock pinterest.com whose fake app asks for its own homefeed: off never mounts; on mounts and hides Pinterest's page, Home from the tap (0 requests of ours) or the SSR state, promoted pins and modules dropped, pagination with the learned template and headers, ≤50 cards with 500 pins, resize keeps the anchor card, the viewer (zoom, idea pages, V_720P, comments, related, Esc/Back to the exact pixel, Pinterest's router never sees our popstates), Alt+Shift+P / Native / sidebar entry / `?pin=native`, the drift and 401 fallbacks; `BROWSER=firefox` for Firefox. Part of `test:all`.
+- `npm run test:pinterest:m2` (`test/pinterest-fast-m2-offline.mjs`): Pinterest Fast UI (M2) on the same kind of mock pinterest.com plus a fake read/write backend: the routes and reserved segments, search from the top bar (no reload, BaseSearchResource headers, promoted dropped, paging, chips), a tapped search with 0 first-page requests, the board picker in the viewer (`s`, search + Enter, RepinResource POST with X-CSRFToken, Saving…/Saved, toast, last board), the card's quick Save, Create board, a 403 rollback that fails nothing, keys (`/`, Esc, j/k, Enter, z, s), Back to Home on the exact pixel with no request, profile (tabs), board (header, paging, owner link), author links in cards and the viewer, the rail, a failing search's banner and `?pin=native`; `BROWSER=firefox` for Firefox. Part of `test:all`.
 - `npm run build:ext` (`ext/build.js`, `--dev` for the dev build): writes the unpacked MV3 extension `dist/better-browsing-ext/` (all four sites; see **Extension** below). `npm run dev:ext` (`ext/dev-server.js`): watches every source tree, rebuilds in `--dev` mode, hot-reloads the extension and the active covered tabs, writes `dist/bb-ext-dev.log` (`HH:MM:SS.mmm [level] [site] args (url)`); it is a long-lived node process, stop it when done (`BB_DEV_PORT` moves it off 47910, for tests only). `build:x:ext` / `dev:x:ext` are aliases of these two (the old `x/ext/` is gone). `npm run test:ext` (`test/ext-smoke.mjs`): loads the real built extension into Chromium (`--load-extension`, `channel: 'chromium'`) on fixture pages: each site is claimed (`data-bb-by="ext"`), the `bb-open-settings` message opens its panel, the popup hub lists four sites, X's and Pinterest's DNR rules toggle (and the `xbb-ext-*`/`pin-ext-*` aliases), hls.js injects into the content world. Not in `test:all` yet.
 - `npm run test:headers` (`test/headers.mjs`, no browser): each @match host is served by exactly one per-site bundle and by the combined one, nothing else (old.reddit.com) is, each `.meta.js` is its `.user.js` header with the same @version, update URLs and header keys are right.
 - `npm run test:double` (`test/double-install.mjs`): the combined and a per-site bundle on the same fixture page, both orders; the site runs once, the hand-over and the notice work.
@@ -212,7 +213,7 @@ Pinterest 1.2.0. Design: `pinterest/FAST-UI-PLAN.md`, look: `pinterest/fast-ui-m
 
 - `<html data-pin-fast="home">` while Fast UI owns the route: content.css hides every other child of `<body>` and shows
   `<pin-fast>` (open shadow root). `"native"` = escaped (Native button, Alt+Shift+P, `?pin=native`); the sidebar "Fast UI"
-  entry (`.pin-fast-entry`) switches back. Routes Fast UI does not own yet (search, Explore, "Open on Pinterest") are a
+  entry (`.pin-fast-entry`) switches back. Routes Fast UI does not own (Explore, a pin page, "Open on Pinterest") are a
   normal page load (`fast.toNative(url)`; in Zero-JS mode the rules go off first).
 - **The API is addressed by name**, no query ids: main-world-api.js learns per resource the `options` Pinterest sent and
   its headers (`x-pinterest-pws-handler`, `x-pinterest-source-url`, `X-APP-VERSION`) into `localStorage['pin-ops-v1']`,
@@ -235,3 +236,39 @@ Pinterest 1.2.0. Design: `pinterest/FAST-UI-PLAN.md`, look: `pinterest/fast-ui-m
   capture while it is open (a click on the stage can leave focus outside the dialog).
 - `main-world.js` holds Pinterest's own video `play()` while `data-pin-fast` owns the page (`lbOpen`); ours carry
   `data-pin-own` (`PIN.setupOwnVideo`).
+
+### Pinterest Fast UI, Milestone 2 (search, profile, board, save, keys)
+
+`pinterest/src/content/fast/`: save.js, feed.js (what the views share), views/search.js, views/profile.js, views/board.js,
+keys.js; router.js swaps views. Pinterest 1.3.0. `npm run test:pinterest:m2`.
+
+- **Routes** (flag.js): home (`/`, `/homefeed/`), search (`/search/pins/?q=`), profile (`/<user>/`, `/_saved/`,
+  `/_created/`), board (`/<user>/<slug>/`, never a `_` slug). `RESERVED` lists first segments that are never a user
+  (pin, search, settings, ideas, today, business, …): add to it before Pinterest ships a new top-level page, or Fast UI
+  takes it for a profile.
+- **Navigation**: `fast.go(url)` pushes `{pin:1, nav:1}` for an owned route (Pinterest's router never sees it, nor its
+  popstates: the capture listener stops every popstate into or out of an entry of ours) and hands anything else to
+  `fast.toNative(url)`; the viewer closes first. `fast.baseUrl()` is the view's URL (an overlay entry keeps it in
+  `u`), `fast.onNav(fn)` fires when it changes, `navKind()` is load/push/pop. flag.js tracks `appUrl` (where
+  Pinterest's hidden app is): escaping on a URL it never rendered reloads with `?pin=native`. Links in our markup are
+  `[data-go]` (the shell delegates them), "Open on Pinterest" is `[data-fv-native]` (`fast.toNative(href)`).
+- router.js keeps Home alive (hidden, grid paused, back on its exact `scrollY` on Back with no request); other views
+  are destroyed when left and mounted again on Back at the remembered scroll; a profile tab is `view.setUrl`.
+- **Only Home's resource is in `ROUTE_OPS`.** Search, profile, board, the picker's boards, Save and Create board never
+  call `fast.fail`: a failure is the view's own banner (`fast.banner`, "Open … on Pinterest") or a toast. Keep it so.
+- First pages go through `fast.firstPage`: a fresh tap for the same options, else on the landed document up to 700 ms
+  after DOMContentLoaded for Pinterest's own request, else our call; in Zero-JS mode and after an in-app navigation
+  the call goes out at once.
+- `PER_CALL` keys (query, username, slug, board_id, name, …) are stripped from learned *and* fallback templates:
+  callers pass them in `overrides`.
+- **Save** (save.js): `RepinResource/create` and `BoardResource/create` are form POSTs (`source_url` + `data`) with
+  `X-CSRFToken` from the `csrftoken` cookie (`fast.api.call(..., { method: 'POST' })`). Optimistic "Saving…"/"Saved",
+  rolled back with a toast; a refused write resets its breaker so the next try goes out. Last board in
+  `localStorage['pin-last-board']`, recent ids in `pin-recent-boards`, the signed-in user (`fast.me()`: Pinterest's
+  `header-profile` link, the SSR context, `pin-fast-me`). The picker is `popover="auto"` and lives inside the viewer's
+  `<dialog>` while it is open (everything outside a modal dialog is inert); the toast (`fast.vtoast`) likewise.
+- keys.js: one window capture listener while owned and `fastUiKeys !== false`, never while typing or with
+  `.pin-settings` open. It is registered before the viewer's, so Esc closes the picker before the viewer.
+- Click attributes of the new markup: `data-go`, `data-fv-native`, `data-fv-retry`, `data-fv-banner`, `data-filter`
+  (chips), `data-tab` (profile), `data-board-id` (board cards), `data-save`/`data-save-pick` + `data-save-id`,
+  `data-pk-*` (picker), `data-lb-author`/`data-lb-board` (viewer), `data-rail`/`data-act` (rail).

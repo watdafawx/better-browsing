@@ -17,7 +17,7 @@
   const root = document.documentElement;
   const LS = 'pin-ops-v1';
   // what the content script may want handed over (the rest is only learned)
-  const TAP = /^(UserHomefeedResource|PinResource|UnifiedCommentsResource|RelatedModulesResource|BaseSearchResource|BoardFeedResource|UserPinsResource)\//;
+  const TAP = /^(UserHomefeedResource|PinResource|UnifiedCommentsResource|RelatedModulesResource|BaseSearchResource|BoardFeedResource|UserPinsResource|UserResource|BoardsResource|BoardResource)\/get$/;
   const origFetch = window.fetch;
   try { Object.defineProperty(window, '__pinRawFetch', { value: origFetch, configurable: true }); } catch {}
 

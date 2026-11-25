@@ -44,7 +44,8 @@
   function mount(shell) {
     const gridEl = h('div', { class: 'grid', 'data-pin-grid': '' });
     const status = h('div', { class: 'status', 'aria-live': 'polite' });
-    shell.feed.append(gridEl, status);
+    const box = h('section', { class: 'view home', 'data-view': 'home' }, gridEl, status);
+    shell.feed.append(box);
     const ext = () => (PIN.ext && typeof PIN.ext.blocking === 'function' ? PIN.ext : null);
     const narrow = innerWidth <= 760;
     const m = PIN.masonry({ gap: narrow ? 12 : 16, minCol: 180, minCols: 2, maxCols: 6, footer: fast.card.footer });
@@ -155,12 +156,13 @@
 
     return {
       grid, start,
-      show() { visible = true; grid.pause(false); start(); },
-      hide() { visible = false; grid.pause(true); },
+      box,
+      show() { box.hidden = false; visible = true; grid.pause(false); start(); },
+      hide() { visible = false; grid.pause(true); box.hidden = true; },
       ids: () => pins.map(p => p.id),
       pins: () => pins,
       state: () => Object.assign({ count: pins.length, bookmark, ended, mounted: grid.mounted(), cols: m.cols() }, stats),
-      destroy() { offTap(); grid.destroy(); gridEl.remove(); status.remove(); }
+      destroy() { offTap(); grid.destroy(); box.remove(); }
     };
   }
   fast.home = { mount, findSSR };

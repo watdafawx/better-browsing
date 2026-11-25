@@ -12,6 +12,7 @@
        requests (pin-api-tap); `first`: only a first page (no bookmarks in its options).
      PIN.fast.api.learned(name), ready()   what pin-ops-v1 holds; ready() = Home's template and handler are known.
      PIN.fast.api.tap(on)   <html data-pin-api-tap>: main-world-api.js hands responses over only while it is set.
+     PIN.fast.api.csrf()    the csrftoken cookie (POSTs send it as X-CSRFToken)
    At most 2 of our requests are in flight; the rest wait in a queue. Failures are never cached. */
 (() => {
   const fast = PIN.fast = PIN.fast || {};
@@ -24,10 +25,23 @@
     'UserHomefeedResource/get': { options: { field_set_key: 'hf_grid', in_nux: false, in_news_hub: false, static_feed: false }, source: '/', handler: 'www/index.js' },
     'PinResource/get': { options: { field_set_key: 'auth_web_main_pin', noCache: true }, source: '/pin/{id}/', handler: 'www/pin/[id].js' },
     'UnifiedCommentsResource/get': { options: { comment_featured_ids: [], page_size: 10, redux_normalize_feed: true, is_reversed: false }, source: '/pin/{id}/', handler: 'www/pin/[id].js' },
-    'RelatedModulesResource/get': { options: { context_pin_ids: [], search_query: '', source: 'deep_linking', top_level_source: 'deep_linking' }, source: '/pin/{id}/', handler: 'www/pin/[id].js' }
+    'RelatedModulesResource/get': { options: { context_pin_ids: [], search_query: '', source: 'deep_linking', top_level_source: 'deep_linking' }, source: '/pin/{id}/', handler: 'www/pin/[id].js' },
+    // M2 (FAST-UI-PLAN.md §3.2; a learned template wins)
+    'BaseSearchResource/get': { options: { scope: 'pins', auto_correction_disabled: false, page_size: 25, redux_normalize_feed: true, rs: 'typed' }, source: '/search/pins/?q={q}&rs=typed', handler: 'www/search/[scope].js' },
+    'UserResource/get': { options: { field_set_key: 'profile' }, source: '/{username}/', handler: 'www/[username].js' },
+    'BoardsResource/get': { options: { page_size: 25, privacy_filter: 'all', sort: 'last_pinned_to', field_set_key: 'profile_grid_item' }, source: '/{username}/_saved/', handler: 'www/[username]/_saved.js' },
+    'UserPinsResource/get': { options: { page_size: 25, field_set_key: 'grid_item' }, source: '/{username}/_created/', handler: 'www/[username]/_created.js' },
+    'BoardResource/get': { options: { field_set_key: 'detailed' }, source: '/{username}/{slug}/', handler: 'www/[username]/[slug].js' },
+    'BoardFeedResource/get': { options: { page_size: 25, field_set_key: 'react_grid_pin' }, source: '/{username}/{slug}/', handler: 'www/[username]/[slug].js' },
+    // the signed-in user's boards for the Save picker (BoardsResource for that user is the fallback, save.js)
+    'BoardPickerBoardsResource/get': { options: { field_set_key: 'board_picker', filter: 'all', sort: 'last_pinned_to' }, source: '/', handler: 'www/index.js' },
+    'RepinResource/create': { options: { section_id: null, description: '', is_buyable_pin: false, carousel_slot_index: 0 }, source: '/pin/{id}/', handler: 'www/pin/[id].js' },
+    'BoardResource/create': { options: { description: '', collab_board_email: false }, source: '/', handler: 'www/index.js' }
   };
-  // keys of a learned template that belong to that one request (ids, paging), never reused for another
-  const PER_CALL = ['bookmarks', 'id', 'pin_id', 'aggregated_pin_id', 'pin_ids', 'context_pin_ids'];
+  // keys of a learned template that belong to that one request (ids, paging, the query, the user), never reused for
+  // another
+  const PER_CALL = ['bookmarks', 'id', 'pin_id', 'aggregated_pin_id', 'pin_ids', 'context_pin_ids', 'query', 'username', 'slug',
+    'board_id', 'board_url', 'source_url', 'name', 'title', 'description', 'privacy', 'link', 'section_id'];
 
   // ---------- learned templates ----------
   let ops = null;
@@ -76,25 +90,34 @@
     const fb = FALLBACK[name] || { options: {}, source: location.pathname, handler: '' };
     const l = learned(name);
     const base = Object.assign({}, (l && l.options && typeof l.options === 'object') ? l.options : fb.options);
+    const hadSrc = Object.prototype.hasOwnProperty.call(base, 'source_url');
     for (const k of PER_CALL) delete base[k];
     const options = Object.assign(base, overrides || {});
     const vars = Object.assign({ id: options.id || options.pin_id || '' }, opts.vars || {});
     const source = opts.source || fill(fb.source, vars) || (l && l.source) || location.pathname;
+    // Pinterest repeats the page URL inside some options (search): ours, never the learned one's
+    if (hadSrc && !(overrides && 'source_url' in overrides)) options.source_url = source;
     const handler = opts.handler || (l && l.handler) || fb.handler;
     return { options, source, handler, appVersion: (l && l.appVersion) || (ops && ops.appVersion) || '' };
   }
+  const csrf = () => { try { const m = /(?:^|;\s*)csrftoken=([^;]*)/.exec(document.cookie || ''); return m ? decodeURIComponent(m[1]) : ''; } catch { return ''; } };
 
+  // opts.method 'POST' (RepinResource/create, BoardResource/create): the same pair form-encoded in the body, and the
+  // csrftoken cookie as X-CSRFToken, the way Pinterest's own app writes
   async function call(name, overrides, opts = {}) {
     if (!breaker.ok(name)) return { ok: false, kind: 'breaker', status: 0, data: null, bookmark: '', message: 'breaker open' };
     const b = build(name, overrides, opts);
-    const q = 'source_url=' + encodeURIComponent(b.source) + '&data=' + encodeURIComponent(JSON.stringify({ options: b.options, context: {} })) + '&_=' + Date.now();
+    const post = opts.method === 'POST';
+    const pair = 'source_url=' + encodeURIComponent(b.source) + '&data=' + encodeURIComponent(JSON.stringify({ options: b.options, context: {} }));
     const headers = { Accept: 'application/json, text/javascript, */*, q=0.01', 'X-Requested-With': 'XMLHttpRequest', 'X-Pinterest-AppState': 'active', 'x-pinterest-source-url': b.source };
     if (b.handler) headers['x-pinterest-pws-handler'] = b.handler;
     if (b.appVersion) headers['X-APP-VERSION'] = b.appVersion;
+    if (post) { headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'; const t = csrf(); if (t) headers['X-CSRFToken'] = t; }
     await slot();
     let res;
     try {
-      const r = await doFetch(location.origin + '/resource/' + name + '/?' + q, { credentials: 'include', headers, signal: opts.signal });
+      const r = await doFetch(location.origin + '/resource/' + name + '/' + (post ? '' : '?' + pair + '&_=' + Date.now()),
+        post ? { method: 'POST', credentials: 'include', headers, body: pair, signal: opts.signal } : { credentials: 'include', headers, signal: opts.signal });
       const status = r.status;
       let text = '';
       try { text = await r.text(); } catch {}
@@ -152,7 +175,7 @@
 
   fast.api = {
     call, breaker, getTapped, onTap(fn) { tapListeners.add(fn); return () => tapListeners.delete(fn); },
-    learned, ready, tap, interpret, FALLBACK,
+    learned, ready, tap, interpret, FALLBACK, csrf,
     // the number of our own requests so far, per resource (tests, PIN.perf)
     stats: { calls: {} }
   };
