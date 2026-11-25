@@ -75,15 +75,18 @@
       node._key = node._i = node._y = undefined;
       if (pool.length < 40) pool.push(node);
     }
-    function acquire(row, i) {
+    function acquire(row, i, batch) {
       const node = pool.pop() || document.createElement('div');
       node.className = 'row';
       node._key = row.key; node._i = i; node._y = -1;
       try { opts.mount(row, node); } catch (e) { console.error('[XBB fast]', e); opts.onError && opts.onError(e); }
       mounted.set(row.key, node);
-      el.append(node);
-      ro.observe(node);
-      try { opts.attached && opts.attached(node); } catch (e) { console.error('[XBB fast]', e); }
+      if (batch) batch.push(node);
+      else {
+        el.append(node);
+        ro.observe(node);
+        try { opts.attached && opts.attached(node); } catch (e) { console.error('[XBB fast]', e); }
+      }
       return node;
     }
 
@@ -100,12 +103,22 @@
         const i = node._i;
         if (i < first || i > last || !rows[i] || rows[i].key !== key) release(key);
       }
+      const added = [];
       for (let i = first; i <= last; i++) {
         const row = rows[i];
-        const node = mounted.get(row.key) || acquire(row, i);
+        const node = mounted.get(row.key) || acquire(row, i, added);
         node._i = i;
         const y = fw.prefix(i);
-        if (node._y !== y) { node._y = y; node.style.transform = `translateY(${y}px)`; }
+        if (node._y !== y) { node._y = y; node.style.transform = `translate3d(0,${y}px,0)`; }
+      }
+      if (added.length) {
+        const frag = document.createDocumentFragment();
+        for (const node of added) frag.append(node);
+        el.append(frag);
+        for (const node of added) {
+          ro.observe(node);
+          try { opts.attached && opts.attached(node); } catch (e) { console.error('[XBB fast]', e); }
+        }
       }
       // within three screens of the end: ask for more (once per length, the caller decides whether it can)
       if (n && opts.onNearEnd && total - (vt + H) < 3 * H && nearEndAsked !== n) { nearEndAsked = n; try { opts.onNearEnd(); } catch (e) { console.error('[XBB fast]', e); } }
@@ -136,7 +149,13 @@
         const delta = fw.prefix(anchor) - before;
         if (Math.abs(delta) >= 0.5) scrollBy(0, delta);
       }
-      layout();
+      // Reposition already-mounted rows without tearing down/mounting synchronously inside ResizeObserver
+      el.style.height = Math.ceil(fw.total()) + 'px';
+      for (const node of mounted.values()) {
+        const y = fw.prefix(node._i);
+        if (node._y !== y) { node._y = y; node.style.transform = `translate3d(0,${y}px,0)`; }
+      }
+      schedule();
     });
 
     const onScroll = () => schedule();

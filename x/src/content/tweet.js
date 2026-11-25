@@ -106,7 +106,9 @@
       box.querySelector('.xbb-lr').title = bothDone(article) ? 'Undo like and retweet' : 'Like and retweet';
     } else lr?.remove();
   }
+  const fastOwned = () => { const a = document.documentElement.getAttribute('data-xbb-fast'); return !!a && a !== 'native'; };
   function scan() {
+    if (fastOwned()) return;
     document.querySelectorAll('article[data-testid="tweet"]').forEach(addButtons);
   }
   XBB.onSettings(() => { document.querySelectorAll('.xbb-acts').forEach(b => b.remove()); scan(); });

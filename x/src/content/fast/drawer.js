@@ -22,6 +22,8 @@
     withQuickPromoteEligibilityTweetFields: true, withBirdwatchNotes: true, withVoice: true };
 
   const cache = new Map();          // focal id -> { at, data } (a TweetDetail first page; failures never cached)
+  const inFlight = new Map();       // focal id -> Promise<result> (shared between hover/press prefetch and open)
+  let hoverBusy = false;
   let dlg = null, panel, body, backBtn, modeBtn, titleEl;
   let cur = null;                   // the focal id on screen
   let sec = null;                   // { anc, focalBox, banner, replies, more } of the post on screen
@@ -155,7 +157,12 @@
       const inMod = x => x && x.moduleId && x.moduleId === it.moduleId;
       frag.push(card(t, { threadPrev: inMod(rest[i - 1]) || undefined, threadNext: inMod(rest[i + 1]) || undefined }));
     }
-    for (const n of frag) { sec.replies.append(n); attachAll(n); }
+    if (frag.length) {
+      const df = document.createDocumentFragment();
+      for (const n of frag) df.append(n);
+      sec.replies.append(df);
+      attachAll(sec.replies);
+    }
     const more = tl.cursors.bottom || (tl.cursors.showMore[0] && tl.cursors.showMore[0].value) || null;
     sec.cursor = more && more !== sec.cursor ? more : null;
     if (!append && !rest.length && !sec.cursor) setBanner('empty');
@@ -173,6 +180,31 @@
     return null;
   }
 
+  function fetchFirst(id, isHover) {
+    if (inFlight.has(id)) return inFlight.get(id);
+    if (isHover && hoverBusy) return null;
+    if (XBB.gql.breaker && !XBB.gql.breaker.ok(OP)) return null;
+    const vars = Object.assign({ focalTweetId: id }, BASE_VARS);
+    if (isHover) hoverBusy = true;
+    const p = XBB.gql.call(OP, vars).then(r => {
+      if (r && r.ok) cache.set(id, { at: Date.now(), data: r.data });
+      return r;
+    }, () => ({ ok: false, kind: 'network' })).finally(() => {
+      inFlight.delete(id);
+      if (isHover) hoverBusy = false;
+    });
+    inFlight.set(id, p);
+    return p;
+  }
+
+  function prefetch(id, isHover) {
+    id = String(id || '');
+    if (!/^\d+$/.test(id)) return;
+    const c = cache.get(id);
+    if ((c && Date.now() - c.at < FRESH_MS) || tappedFor(id) || inFlight.has(id)) return;
+    fetchFirst(id, !!isHover);
+  }
+
   async function load(id, cursor) {
     if (!sec || sec.id !== id || sec.loading) return;
     const my = seq;
@@ -184,10 +216,15 @@
     }
     sec.loading = true;
     moreBtn();
-    const vars = Object.assign({ focalTweetId: id }, BASE_VARS, cursor ? { cursor, referrer: 'tweet' } : {});
-    fast.extraRequests = (fast.extraRequests || 0) + 1;
     let r;
-    try { r = await XBB.gql.call(OP, vars); } catch { r = { ok: false, kind: 'network' }; }
+    if (!cursor) {
+      if (!inFlight.has(id)) fast.extraRequests = (fast.extraRequests || 0) + 1;
+      r = await (fetchFirst(id, false) || XBB.gql.call(OP, Object.assign({ focalTweetId: id }, BASE_VARS)));
+    } else {
+      const vars = Object.assign({ focalTweetId: id }, BASE_VARS, { cursor, referrer: 'tweet' });
+      fast.extraRequests = (fast.extraRequests || 0) + 1;
+      try { r = await XBB.gql.call(OP, vars); } catch { r = { ok: false, kind: 'network' }; }
+    }
     if (my !== seq || !sec || sec.id !== id) return;
     sec.loading = false;
     if (r && r.ok) {
@@ -287,7 +324,7 @@
   }, true);
 
   fast.drawer = {
-    open, back, close,
+    open, back, close, prefetch,
     isOpen: () => !!(dlg && dlg.open),
     focal: () => cur,
     el: () => dlg,

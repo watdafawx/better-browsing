@@ -129,6 +129,26 @@
       const q = search.value.trim();
       if (q) fast.toNative('/search?q=' + encodeURIComponent(q) + '&src=typed_query');
     });
+    // Prefetch thread replies on 220ms hover or pointerdown (max 1 hover prefetch in flight) so comments
+    // are already loaded or in flight by the time the click opens the drawer.
+    let hoverT = 0, hoverId = '';
+    const tweetIdOf = e => {
+      const a = firstEl(e)?.closest?.('article.tweet[data-id]');
+      return a && !a.classList.contains('focal') ? a.dataset.id : '';
+    };
+    root.addEventListener('pointerover', e => {
+      const id = tweetIdOf(e);
+      if (id === hoverId) return;
+      clearTimeout(hoverT);
+      hoverId = id;
+      if (id && fast.drawer && fast.drawer.prefetch) hoverT = setTimeout(() => { hoverT = 0; fast.drawer.prefetch(id, true); }, 220);
+    }, { passive: true });
+    root.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const id = tweetIdOf(e);
+      if (id && fast.drawer && fast.drawer.prefetch) fast.drawer.prefetch(id, false);
+    }, { passive: true });
+
     // Keys typed in our fields must not reach X's shortcuts (j/k/l/n... are X's) or our own
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, e => {
       const t = firstEl(e);

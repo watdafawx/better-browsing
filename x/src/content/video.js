@@ -207,7 +207,9 @@
     prep(v);
     return true;
   }
+  const fastOwned = () => { const a = root.getAttribute('data-xbb-fast'); return !!a && a !== 'native'; };
   function scan() {
+    if (fastOwned()) return;
     document.querySelectorAll('video').forEach(watch);
   }
 
@@ -228,7 +230,7 @@
         v.addEventListener('ended', onEnded, true);
         try { v.dispatchEvent(new CustomEvent('xbb-video-own', { bubbles: true, composed: true })); } catch {}
       }
-      schedule(0);
+      schedule(40);
       return true;
     },
     remove(v) {
@@ -268,11 +270,8 @@
     }
   };
   XBB.onDomChange(scan, 200);
-  let lastRun = 0;
   addEventListener('scroll', () => {
-    const now = performance.now();
-    if (now - lastRun > 150) { lastRun = now; evaluate(); }
-    schedule(150);                       // and once more when it settles
+    schedule(120);                       // evaluate once scroll pauses/throttles; never force layout mid-scroll
   }, { passive: true, capture: true });
   document.addEventListener('visibilitychange', () => { if (document.hidden) pauseAway(); else schedule(); });
   XBB.onSettings(s => {

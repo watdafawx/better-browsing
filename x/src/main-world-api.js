@@ -398,7 +398,7 @@
         try { s = fnToString.call(f); } catch { continue; }
         if (/fetch|XMLHttpRequest|\.send\(|localStorage|document\./.test(s) || !/crypto|subtle|btoa|Uint8Array/.test(s)) continue;
         try {
-          const v = await Promise.race([Promise.resolve(f('/i/api/graphql/x/x', 'GET')), new Promise((_, no) => setTimeout(no, 1500))]);
+          const v = await Promise.race([Promise.resolve(f('/i/api/graphql/x/x', 'GET')), new Promise((_, no) => setTimeout(no, 150))]);
           if (typeof v === 'string' && TX_OK.test(v)) { txFn = f; return; }
         } catch {}
       }
@@ -407,7 +407,8 @@
   async function txid(path, method) {
     try {
       if (typeof window.__xbbApiTxid === 'function') { const v = await window.__xbbApiTxid(path, method); if (typeof v === 'string' && v) return v; }
-      if (!txTried) await findTxid();
+      // Never stall GET queries probing unknown webpack modules; only probe on POST/mutations.
+      if (!txTried && method !== 'GET') await findTxid();
       if (txFn) { const v = await txFn(path, method); if (typeof v === 'string' && TX_OK.test(v)) return v; }
     } catch {}
     return '';
