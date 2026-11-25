@@ -298,3 +298,10 @@ dialog.lb.side-off .side{display:none}
   .lb-head .ibtn[data-lb-act="copy"]{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- Zen Browser transparency mode (readable frosted glass) ---------- */
+:host([data-bb-transparent="1"]){background:transparent}
+:host([data-bb-transparent="1"]) .topbar{background:color-mix(in srgb,var(--bg) 76%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+:host([data-bb-transparent="1"]) .rail{background:color-mix(in srgb,var(--bg) 62%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+:host([data-bb-transparent="1"]) .card .meta{background:color-mix(in srgb,var(--bg) 72%,transparent);border-radius:0 0 12px 12px;padding:6px 8px}
+:host([data-bb-transparent="1"]) .bt-pop{background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}

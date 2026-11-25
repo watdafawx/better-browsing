@@ -45,6 +45,7 @@ xbb-fast { display: block; }
 html[data-xbb-fast]:not([data-xbb-fast="native"]), html[data-xbb-fast]:not([data-xbb-fast="native"]) body { background: #000; }
 /* a Hopper / imported theme (userscript/themes.js) puts its page colour here: no flash outside the shadow root */
 html[data-bb-page][data-bb-page][data-xbb-fast]:not([data-xbb-fast="native"]), html[data-bb-page][data-bb-page][data-xbb-fast]:not([data-xbb-fast="native"]) body { background: var(--bb-page-bg); }
+html[data-bb-transparent="1"][data-xbb-fast]:not([data-xbb-fast="native"]), html[data-bb-transparent="1"][data-xbb-fast]:not([data-xbb-fast="native"]) body { background: transparent !important; }
 .xbb-fast-toast {
   position: fixed; left: 50%; bottom: 28px; z-index: 2147483000; transform: translate(-50%, 16px);
   max-width: min(92vw, 520px); padding: 10px 18px; border-radius: 8px;

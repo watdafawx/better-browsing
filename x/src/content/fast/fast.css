@@ -489,3 +489,17 @@ dialog.drawer.center .dr-panel { width: min(640px, calc(100vw - 24px)); height: 
   .pf-bar { gap: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- Zen Browser transparency mode (readable frosted glass) ---------- */
+:host([data-bb-transparent="1"]) { background: transparent; }
+:host([data-bb-transparent="1"]) .topbar { background: color-mix(in srgb, var(--bg) 74%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+:host([data-bb-transparent="1"]) main { background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+:host([data-bb-transparent="1"]) .col-head { background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+:host([data-bb-transparent="1"]) .side .card,
+:host([data-bb-transparent="1"]) .side .search { background: color-mix(in srgb, var(--bg-2) 72%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+:host([data-bb-transparent="1"]) .tweet:hover { background: color-mix(in srgb, var(--bg-2) 55%, transparent); }
+:host([data-bb-transparent="1"]) .dr-panel,
+:host([data-bb-transparent="1"]) .dm-panel,
+:host([data-bb-transparent="1"]) .nt-pop,
+:host([data-bb-transparent="1"]) .hovercard,
+:host([data-bb-transparent="1"]) .bt-pop { background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }

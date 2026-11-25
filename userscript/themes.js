@@ -174,6 +174,10 @@ const bbThemes = (() => {
         : (d ? '0 0 15px rgb(0 0 0 / .6), 0 0 3px 1px rgb(255 255 255 / .08)' : '0 0 15px rgb(101 119 134 / 0.2), 0 0 3px 1px rgb(101 119 134 / 0.15)')
     };
   }
+  const TR_KEY = 'bb-fast-transparent';
+  function isTransparent() { try { return localStorage.getItem(TR_KEY) === '1'; } catch { return false; } }
+  function setTransparent(on) { try { if (on) localStorage.setItem(TR_KEY, '1'); else localStorage.removeItem(TR_KEY); } catch {} }
+
   const applied = new WeakMap();
   function apply(host, id, opts) {
     opts = opts || {};
@@ -182,7 +186,8 @@ const bbThemes = (() => {
     if (!t) t = byId(auto);
     const cls = classOfTheme(t);
     const vars = t.classic ? null : varsOf(t, opts.site);
-    const key = [cls, t.id, opts.site || '', opts.page ? 1 : 0, vars ? JSON.stringify(vars) : ''].join('|');
+    const tr = isTransparent();
+    const key = [cls, t.id, opts.site || '', opts.page ? 1 : 0, tr ? 1 : 0, vars ? JSON.stringify(vars) : ''].join('|');
     const out = { id: t.id, requested: id || 'auto', cls, theme: t };
     if (applied.get(host) === key) return out;
     applied.set(host, key);
@@ -192,12 +197,16 @@ const bbThemes = (() => {
     st.colorScheme = vars ? (t.dark ? 'dark' : 'light') : '';
     if (host.getAttribute('data-theme') !== cls) host.setAttribute('data-theme', cls);
     if (host.getAttribute('data-bb-theme') !== t.id) host.setAttribute('data-bb-theme', t.id);
+    if (tr) host.setAttribute('data-bb-transparent', '1');
+    else host.removeAttribute('data-bb-transparent');
     if (opts.page) {
       // the page behind the shadow root (a CSS rule in the site's content.css reads these only while Fast UI owns it):
       // no white/black flash around the Fast UI
       const r = document.documentElement;
       if (vars) { r.style.setProperty('--bb-page-bg', t.bg); r.setAttribute('data-bb-page', t.id); }
       else { r.style.removeProperty('--bb-page-bg'); r.removeAttribute('data-bb-page'); }
+      if (tr) r.setAttribute('data-bb-transparent', '1');
+      else r.removeAttribute('data-bb-transparent');
       if (opts.site === 'pin' && r.getAttribute('data-pin-theme') !== cls) r.setAttribute('data-pin-theme', cls);
     }
     return out;
@@ -226,6 +235,8 @@ const bbThemes = (() => {
 .bt-pill i{display:block;border-radius:50%;width:7px;height:7px;flex:none}
 .bt-pill b{display:block;height:3px;width:10px;border-radius:2px;flex:none}
 .bt-split{background:linear-gradient(135deg,#000 50%,#fff 50%)!important;width:22px;height:22px;border-radius:50%;flex:none;border:1px solid rgb(128 128 128 / .55);box-sizing:border-box}
+.bt-glass{width:22px;height:22px;border-radius:50%;flex:none;border:1px solid rgb(128 128 128 / .55);box-sizing:border-box;background:repeating-conic-gradient(rgb(128 128 128 / .35) 0% 25%,transparent 0% 50%) 50% / 8px 8px}
+.bt-sys+.bt-sys{margin-top:6px}
 .bt-pop{position:fixed;inset:auto;margin:0;width:392px;max-width:calc(100vw - 16px);max-height:min(82vh,620px);overflow:auto;box-sizing:border-box;padding:12px;border-radius:14px;border:1px solid var(--b-line);background:var(--b-bg);color:var(--b-fg);box-shadow:0 14px 44px rgba(0,0,0,.45);font:13px/1.35 var(--font,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif);text-align:left}
 .bt-top{display:flex;align-items:center;gap:6px;margin-bottom:10px}
 .bt-top h3{margin:0 auto 0 4px;font-size:14px;font-weight:700;color:var(--b-fg)}
@@ -320,10 +331,10 @@ const bbThemes = (() => {
       return mk('div', { class: 'bt-row' }, b, t.custom ? mk('button', { class: 'bt-del', type: 'button', 'data-bt-del': t.id, 'aria-label': 'Remove ' + t.name, title: 'Remove' }, '×') : null);
     };
     let last = '';
-    const keyOf = () => [cur(), autoCls(), readCustom().map(t => t.id + t.bg + t.accent).join(',')].join('|');
+    const keyOf = () => [cur(), autoCls(), isTransparent() ? '1' : '0', readCustom().map(t => t.id + t.bg + t.accent).join(',')].join('|');
     function render() {
       last = keyOf();
-      const id = cur(), isAuto = id === 'auto' || !byId(id);
+      const id = cur(), isAuto = id === 'auto' || !byId(id), trOn = isTransparent();
       const sel = isAuto ? '' : id;
       const real = byId(isAuto ? autoCls() : id) || CLASSIC[0];
       pillSlot.replaceChildren(pill(shown(real)));
@@ -332,12 +343,15 @@ const bbThemes = (() => {
       const sys = mk('button', { class: 'bt-sys', type: 'button', role: 'switch', 'aria-checked': String(isAuto), 'data-theme-pick': 'auto' },
         mk('span', { class: 'bt-split', 'aria-hidden': 'true' }),
         mk('span', { class: 'bt-t' }, 'Follow system', mk('small', null, opts.systemLabel || 'Light or dark as your system is')), mk('span', { class: 'bt-sw', 'aria-hidden': 'true' }));
+      const trBtn = mk('button', { class: 'bt-sys', type: 'button', role: 'switch', 'aria-checked': String(trOn), 'data-bt-transparent': '' },
+        mk('span', { class: 'bt-glass', 'aria-hidden': 'true' }),
+        mk('span', { class: 'bt-t' }, 'Transparency', mk('small', null, 'Frosted glass backdrop for Zen Browser')), mk('span', { class: 'bt-sw', 'aria-hidden': 'true' }));
       const cus = readCustom();
-      body.replaceChildren(sys,
+      body.replaceChildren(...[sys, trBtn,
         mk('div', { class: 'bt-h' }, 'Dark'), mk('div', { class: 'bt-grid' }, LIST.filter(t => t.dark).map(t => item(t, sel))),
         mk('div', { class: 'bt-h' }, 'Light'), mk('div', { class: 'bt-grid' }, LIST.filter(t => !t.dark).map(t => item(t, sel))),
         cus.length ? mk('div', { class: 'bt-h' }, 'Custom') : null,
-        cus.length ? mk('div', { class: 'bt-grid' }, cus.map(t => item(t, sel))) : null);
+        cus.length ? mk('div', { class: 'bt-grid' }, cus.map(t => item(t, sel))) : null].filter(Boolean));
     }
 
     const isOpen = () => { try { return supported ? pop.matches(':popover-open') : pop.classList.contains('bt-open'); } catch { return false; } };
@@ -391,7 +405,13 @@ const bbThemes = (() => {
       if (t.closest('[data-bt-import]')) { importBox.hidden = !importBox.hidden; say(''); if (!importBox.hidden) ta.focus(); place(); return; }
       if (t.closest('[data-bt-file]')) { file.click(); return; }
       if (t.closest('[data-bt-add]')) { if (ta.value.trim()) add(ta.value); else say('Paste a theme first, or choose a file.', true); return; }
-      if (t.closest('[data-bt-reset]')) { pick('auto'); return; }
+      if (t.closest('[data-bt-reset]')) { setTransparent(false); pick('auto'); return; }
+      if (t.closest('[data-bt-transparent]')) {
+        setTransparent(!isTransparent());
+        render();
+        try { opts.onChange && opts.onChange(cur()); } catch (err) { console.error('[bbThemes]', err); }
+        return;
+      }
       const del = t.closest('[data-bt-del]');
       if (del) {
         const id = del.getAttribute('data-bt-del'), wasCur = cur() === id;
@@ -413,5 +433,5 @@ const bbThemes = (() => {
     return { el: wrap, update() { if (keyOf() !== last) render(); }, close, open, isOpen };
   }
 
-  return { LIST, CLASSIC, byId, custom, removeCustom, importJson, classOf, apply, fillSelect, mountPicker, CSS, isClassic };
+  return { LIST, CLASSIC, byId, custom, removeCustom, importJson, classOf, apply, fillSelect, mountPicker, CSS, isClassic, isTransparent, setTransparent };
 })();
