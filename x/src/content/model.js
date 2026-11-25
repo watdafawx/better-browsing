@@ -62,10 +62,12 @@
       const l = isObj(u.legacy) ? u.legacy : {};
       const core = isObj(u.core) ? u.core : {};
       const vt = str(get(u, 'verification', 'verified_type')) || str(l.verified_type) || '';
-      const blue = u.is_blue_verified === true || l.verified === true || !!vt;
+      const blue = u.is_blue_verified === true || get(u, 'verification', 'is_blue_verified') === true || get(u, 'verification', 'verified') === true || l.verified === true || !!vt;
       const rel = isObj(u.relationship_perspectives) ? u.relationship_perspectives : {};
-      const following = rel.following ?? l.following;
-      const requested = rel.follow_request_sent ?? l.follow_request_sent;
+      const rcnt = isObj(u.relationship_counts) ? u.relationship_counts : {};
+      const tcnt = isObj(u.tweet_counts) ? u.tweet_counts : {};
+      const following = rel.following ?? u.is_following ?? l.following;
+      const requested = rel.follow_request_sent ?? u.follow_request_sent ?? l.follow_request_sent;
       const ms = toMs(core.created_at ?? l.created_at);
       const urlEnt = get(l, 'entities', 'url', 'urls', 0);
       return {
@@ -76,9 +78,9 @@
         bio: unescapeHtml(str(l.description ?? get(u, 'profile_bio', 'description'))),
         avatar: str(get(u, 'avatar', 'image_url') ?? l.profile_image_url_https),
         banner: str(l.profile_banner_url),
-        followers: num(l.followers_count ?? l.normal_followers_count),
-        following: num(l.friends_count),
-        tweetsCount: num(l.statuses_count),
+        followers: num(rcnt.followers ?? l.followers_count ?? l.normal_followers_count),
+        following: num(rcnt.following ?? l.friends_count),
+        tweetsCount: num(tcnt.tweets ?? l.statuses_count),
         likesCount: num(l.favourites_count),
         mediaCount: num(l.media_count),
         verified: blue,
@@ -196,17 +198,20 @@
     if (t.__typename === 'TweetTombstone' || (!t.legacy && isObj(t.tombstone))) return unavailable(str(get(t, 'tombstone', 'text', 'text')), 'tombstone');
     if (t.__typename === 'TweetUnavailable') return unavailable(str(t.reason) || 'Unavailable', 'unavailable');
     const l = isObj(t.legacy) ? t.legacy : null;
+    const det = isObj(t.details) ? t.details : {};
+    const cnt = isObj(t.counts) ? t.counts : {};
+    const per = isObj(t.perspective) ? t.perspective : {};
     const id = str(t.rest_id) || str(get(l, 'id_str'));
     if (!l && !id) return null;
     const lg = l || {};
 
     // A retweet is the retweeter's tweet pointing at the original: return the original, say who retweeted it
-    const rtRaw = get(lg, 'retweeted_status_result');
+    const rtRaw = get(t, 'retweeted_status_result') ?? get(lg, 'retweeted_status_result');
     if (rtRaw && depth < MAX_DEPTH) {
       const inner = tweetRecord(rtRaw, depth + 1);
       if (inner) {
         const who = authorOf(get(t, 'core', 'user_results'));
-        const rms = toMs(lg.created_at);
+        const rms = toMs(det.created_at_ms ?? lg.created_at);
         inner.retweetedBy = { id: who.id, name: who.name, screenName: who.screenName, tweetId: id, createdAt: iso(rms), createdAtMs: rms };
         return inner;
       }
@@ -218,19 +223,21 @@
     let text, ents;
     if (isLong) { text = unescapeHtml(note.text); ents = note.entity_set; }
     else {
-      text = unescapeHtml(str(lg.full_text ?? lg.text));
-      ents = lg.entities;
+      text = unescapeHtml(str(det.full_text ?? lg.full_text ?? lg.text));
+      ents = (isArr(t.url_entities) || isArr(t.mention_entities) || isArr(det.hashtag_entities))
+        ? { urls: t.url_entities, user_mentions: t.mention_entities, hashtags: det.hashtag_entities }
+        : lg.entities;
       // What X shows: without the reply mentions in front and the media link behind (positions count code points)
-      const r = idx(lg.display_text_range);
+      const r = idx(det.display_text_range ?? lg.display_text_range);
       if (r && r[1] > r[0]) { const cps = Array.from(text); if (r[1] <= cps.length) text = cps.slice(r[0], r[1]).join(''); }
     }
-    const mediaRaw = isArr(get(lg, 'extended_entities', 'media')) ? lg.extended_entities.media : get(lg, 'entities', 'media');
-    const ms = toMs(lg.created_at);
+    const mediaRaw = isArr(t.media_entities2) ? t.media_entities2 : isArr(get(lg, 'extended_entities', 'media')) ? lg.extended_entities.media : get(lg, 'entities', 'media');
+    const ms = toMs(det.created_at_ms ?? lg.created_at);
     const sn = author.screenName;
     const views = get(t, 'views', 'count');
 
     const quoteRaw = get(t, 'quoted_status_result');
-    const replyId = str(lg.in_reply_to_status_id_str);
+    const replyId = str(lg.in_reply_to_status_id_str ?? det.in_reply_to_status_id_str);
     return {
       type: 'tweet',
       id,
@@ -249,8 +256,19 @@
       replyTo: replyId || str(lg.in_reply_to_screen_name) ? { tweetId: replyId || null, userId: str(lg.in_reply_to_user_id_str) || null, screenName: str(lg.in_reply_to_screen_name) || null } : null,
       card: cardOf(t.card),
       communityNote: communityNoteOf(t.birdwatch_pivot),
-      stats: { replies: num(lg.reply_count), retweets: num(lg.retweet_count), quotes: num(lg.quote_count), likes: num(lg.favorite_count), bookmarks: num(lg.bookmark_count), views: has(views) ? num(views) : null },
-      viewer: { liked: lg.favorited === true, retweeted: lg.retweeted === true, bookmarked: lg.bookmarked === true },
+      stats: {
+        replies: num(cnt.reply_count ?? lg.reply_count),
+        retweets: num(cnt.retweet_count ?? lg.retweet_count),
+        quotes: num(cnt.quote_count ?? lg.quote_count),
+        likes: num(cnt.favorite_count ?? lg.favorite_count),
+        bookmarks: num(cnt.bookmark_count ?? lg.bookmark_count),
+        views: has(views) ? num(views) : null
+      },
+      viewer: {
+        liked: (per.favorited ?? lg.favorited) === true,
+        retweeted: (per.retweeted ?? lg.retweeted) === true,
+        bookmarked: (per.bookmarked ?? lg.bookmarked) === true
+      },
       source: str(t.source).replace(/<[^>]*>/g, '').trim(),
       sensitive: lg.possibly_sensitive === true,
       interstitial
@@ -277,7 +295,7 @@
     return empty;
   }
 
-  const isPromoted = (ic, entryId) => !!(ic && (ic.promotedMetadata || get(ic, 'tweet_results', 'result', 'promotedMetadata'))) || /(^|-)(promoted|ad)-|promotedtweet/i.test(entryId || '');
+  const isPromoted = (ic, entryId) => !!(ic && (ic.promotedMetadata || ic.promoted_metadata || get(ic, 'tweet_results', 'result', 'promotedMetadata') || get(ic, 'tweet_results', 'result', 'promoted_metadata'))) || /(^|-)(promoted|ad)-|promotedtweet/i.test(entryId || '');
 
   function extractTimeline(data, opts) {
     const keepPromoted = !!(opts && opts.keepPromoted);
@@ -289,7 +307,7 @@
       const cursor = (c, entryId) => {
         const v = str(c.value);
         if (!v) return;
-        const type = str(c.cursorType) || (/^cursor-top/.test(entryId || '') ? 'Top' : /^cursor-bottom/.test(entryId || '') ? 'Bottom' : '');
+        const type = str(c.cursorType ?? c.cursor_type) || (/^cursor-top/.test(entryId || '') ? 'Top' : /^cursor-bottom/.test(entryId || '') ? 'Bottom' : '');
         if (type === 'Top') out.cursors.top = v;
         else if (type === 'Bottom') out.cursors.bottom = v;
         else if (/^ShowMore/.test(type)) out.cursors.showMore.push({ type, value: v });
@@ -302,7 +320,7 @@
           if (promoted && !keepPromoted) { out.skippedPromoted++; return; }
           const tweet = normalizeTweet(ic.tweet_results);
           if (!tweet) return;
-          out.items.push({ kind: 'tweet', entryId: meta.entryId, sortIndex: meta.sortIndex, tweet, promoted, display: str(ic.tweetDisplayType) || null,
+          out.items.push({ kind: 'tweet', entryId: meta.entryId, sortIndex: meta.sortIndex, tweet, promoted, display: str(ic.tweetDisplayType ?? ic.display_type) || null,
             pinned: !!meta.pinned, moduleId: meta.moduleId || null, moduleIndex: meta.moduleIndex ?? null });
         } else if (kind === 'TimelineUser') {
           const user = normalizeUser(ic.user_results);
@@ -313,19 +331,20 @@
         arr(items).forEach((it, i) => {
           out.rawEntryCount++;
           if (!isObj(it)) return;
-          item(get(it, 'item', 'itemContent') ?? it.itemContent, { entryId: str(it.entryId) || moduleId, sortIndex, moduleId, moduleIndex: i });
+          const ic = get(it, 'item', 'itemContent') ?? get(it, 'item', 'content') ?? it.itemContent ?? it.content;
+          item(ic, { entryId: str(it.entryId ?? it.entry_id) || moduleId, sortIndex, moduleId, moduleIndex: i });
         });
       };
       const entry = (e, pinned) => {
         out.rawEntryCount++;
         if (!isObj(e) || !isObj(e.content)) return;
-        const c = e.content, entryId = str(e.entryId), sortIndex = str(e.sortIndex) || null;
+        const c = e.content, entryId = str(e.entryId ?? e.entry_id), sortIndex = str(e.sortIndex ?? e.sort_index) || null;
         const type = str(c.entryType) || str(c.__typename);
-        if (type === 'TimelineTimelineCursor' || has(c.cursorType)) cursor(c, entryId);
+        if (type === 'TimelineTimelineCursor' || has(c.cursorType) || has(c.cursor_type)) cursor(c, entryId);
         else if (type === 'TimelineTimelineModule' || isArr(c.items)) {
           if (isPromoted(null, entryId) && !keepPromoted) { out.skippedPromoted++; return; }
           moduleItems(c.items, entryId, sortIndex);
-        } else item(c.itemContent, { entryId, sortIndex, pinned });
+        } else item(c.itemContent ?? c.content, { entryId, sortIndex, pinned });
       };
       for (const i of ins) {
         if (!isObj(i)) continue;
