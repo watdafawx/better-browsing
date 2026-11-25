@@ -23,6 +23,7 @@
     lrt: '<path d="M8.5 18s-5-3-5-6.8a2.8 2.8 0 0 1 5-1.7 2.8 2.8 0 0 1 5 1.7c0 3.8-5 6.8-5 6.8z"/><path d="M15 6.5 17.5 4 20 6.5M17.5 4v7.5a2.5 2.5 0 0 1-2.5 2.5"/>',
     bm: '<path d="M6.5 4h11v16.5L12 16.8l-5.5 3.7z"/>',
     copy: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/>',
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     views: '<path d="M5 20v-7M10 20V6M15 20v-9M20 20V9"/>',
     badge: '<path d="M12 2.5l2.4 1.8 3-.2.9 2.9 2.4 1.8-1 2.8 1 2.8-2.4 1.8-.9 2.9-3-.2L12 21.5l-2.4-1.8-3 .2-.9-2.9-2.4-1.8 1-2.8-1-2.8 2.4-1.8.9-2.9 3 .2z"/><path d="m8.5 12 2.4 2.4 4.6-4.8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -268,7 +269,8 @@
       h('span', { class: 'group' },
         s.likeRetweet === false ? null : act('lrt', v.liked && v.retweeted ? 'Undo like and retweet' : 'Like and retweet', undefined, v.liked && v.retweeted),
         act('bm', 'Bookmark', undefined, v.bookmarked),
-        s.embedLink === false ? null : act('copy', 'Copy link for Discord (shows the tweet and its video in the chat)')));
+        s.embedLink === false ? null : act('copy', 'Copy link for Discord (shows the tweet and its video in the chat)'),
+        act('share', 'Copy link to post')));
   }
   function syncActions(bar, t) {
     if (!bar || !t) return;
@@ -533,17 +535,17 @@
     if (!v.liked) await toggle('like', id, true);
     if (!(store.tweet(id).viewer || {}).retweeted) await toggle('rt', id, true);
   }
-  async function copyLink(btn, id) {
+  async function copyLink(btn, id, plain) {
     const t = store.tweet(id);
     if (!t) return;
-    const url = XBB.embedUrl(t.author.screenName || 'i', t.id);
+    const url = plain ? ('https://x.com/' + (t.author.screenName || 'i') + '/status/' + t.id) : XBB.embedUrl(t.author.screenName || 'i', t.id);
     fast.lastCopy = url;
     const ok = XBB.copyText ? await XBB.copyText(url) : false;
     if (!ok) { fast.toast('Could not copy the link'); return false; }
     if (!btn) { fast.toast('Link copied: ' + url.replace(/^https:\/\//, '')); return true; }
     btn.classList.add('done');
     btn.querySelector('.ic').replaceChildren(icon('check'));
-    setTimeout(() => { btn.classList.remove('done'); btn.querySelector('.ic').replaceChildren(icon('copy')); }, 1400);
+    setTimeout(() => { btn.classList.remove('done'); btn.querySelector('.ic').replaceChildren(icon(plain ? 'share' : 'copy')); }, 1400);
     return true;
   }
 
@@ -622,7 +624,8 @@
       else if (k === 'bm') toggle('bm', id);
       else if (k === 'rt') { if (e.shiftKey || XBB.settings.quickRetweet === false) rtMenu(btn, id, ctx.root); else toggle('rt', id); }
       else if (k === 'lrt') likeRetweet(id);
-      else if (k === 'copy') copyLink(btn, id);
+      else if (k === 'copy') copyLink(btn, id, false);
+      else if (k === 'share') copyLink(btn, id, true);
       else if (k === 'reply') {
         // Reply on a post: its thread in the drawer. On the post the drawer already shows: X's own composer.
         const t = store.tweet(id);
