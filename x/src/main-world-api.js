@@ -24,7 +24,8 @@
   const LS_KEY = 'xbb-gql-ops-v1';
   const WP_KEY = 'webpackChunk_twitter_responsive_web';
   const TAP_ATTR = 'data-xbb-api-tap';
-  const GQL = /\/i\/api\/graphql\/([\w-]+)\/(\w+)/;
+  const GQL = /(?:\/i\/api)?\/graphql\/([\w-]+)\/(\w+)/;
+  const isApiUrl = u => u.indexOf('/i/api/') !== -1 || u.indexOf('/graphql/') !== -1;
   const VALID_ID = /^[\w-]{8,64}$/;
   const TAP_OPS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'TweetDetail', 'UserByScreenName', 'UserTweets',
     'UserTweetsAndReplies', 'UserMedia', 'Likes', 'Bookmarks', 'SearchTimeline']);
@@ -284,9 +285,15 @@
   const cookieCsrf = () => { const m = /(?:^|;\s*)ct0=([^;]+)/.exec(document.cookie); return m ? m[1] : ''; };
 
   // A graphql request X makes itself: learn its queryId and the exact feature flags it sends
+  let gqlBase = '/i/api/graphql/';
   function learnGraphql(url, body, method) {
     const m = GQL.exec(url);
     if (!m) return null;
+    try {
+      const u = new URL(url, location.href);
+      const idx = u.pathname.indexOf('/graphql/');
+      if (idx !== -1) gqlBase = (u.origin === location.origin ? '' : u.origin) + u.pathname.slice(0, idx + 9);
+    } catch {}
     let vars, feats, toggles;
     try {
       if (body) { const b = JSON.parse(body); vars = b.variables; feats = b.features; toggles = b.fieldToggles; }
@@ -307,7 +314,7 @@
     let g = null;
     try {
       const url = typeof input === 'string' ? input : (input && (input.url || input.href)) || '';
-      if (url.indexOf('/i/api/') !== -1) {
+      if (isApiUrl(url)) {
         captureHeaders((init && init.headers) || (input && input.headers));
         const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
         g = learnGraphql(url, init && typeof init.body === 'string' ? init.body : null, method);
@@ -331,7 +338,7 @@
     const xOpen = XP.open, xSet = XP.setRequestHeader, xSend = XP.send;
     const xinfo = new WeakMap();
     XP.open = function (method, url) {
-      try { const u = String(url); xinfo.set(this, { m: String(method || 'GET').toUpperCase(), u, h: {}, api: u.indexOf('/i/api/') !== -1 }); } catch {}
+      try { const u = String(url); xinfo.set(this, { m: String(method || 'GET').toUpperCase(), u, h: {}, api: isApiUrl(u) }); } catch {}
       return xOpen.apply(this, arguments);
     };
     XP.setRequestHeader = function (k, v) {
@@ -438,7 +445,8 @@
     const features = boolMap(req.features) || buildFeatures(o);
     const toggles = boolMap(req.fieldToggles) || buildToggles(o);
     const hasToggles = Object.keys(toggles).length > 0;
-    const base = '/i/api/graphql/' + o.queryId + '/' + name;
+    const base = gqlBase + o.queryId + '/' + name;
+    const txPath = (base.startsWith('http') ? new URL(base).pathname : base);
     let url = base, body;
     if (method === 'GET') {
       url = base + '?variables=' + enc(JSON.stringify(variables)) + '&features=' + enc(JSON.stringify(features)) +
@@ -451,7 +459,7 @@
 
     const headers = { authorization: session.authorization, 'x-csrf-token': csrf, 'content-type': 'application/json' };
     for (const k of SESSION_HEADERS) if (session[k] && !headers[k]) headers[k] = session[k];
-    const tx = await txid(base, method);
+    const tx = await txid(txPath, method);
     if (tx) headers['x-client-transaction-id'] = tx;
     if (isObj(req.extraHeaders)) for (const k of Object.keys(req.extraHeaders)) if (typeof req.extraHeaders[k] === 'string') headers[k.toLowerCase()] = req.extraHeaders[k];
 

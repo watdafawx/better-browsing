@@ -6,7 +6,13 @@
    carrying a nonce taken from one of the page's own scripts. In the page world (Chrome, Firefox without
    CSP) they simply run. */
 const runMain = fn => {
-  if (typeof window.wrappedJSObject === 'undefined') { fn(); return; }
+  // Firefox content realm has window.wrappedJSObject; Chrome content fallback (Violentmonkey
+  // @inject-into auto when a nonce CSP blocks inline scripts) has chrome.runtime.id.
+  // In either isolated world, inject fn into the real page world via a <script nonce="...">.
+  const inContent = typeof window.wrappedJSObject !== 'undefined' ||
+    (typeof chrome !== 'undefined' && !!(chrome && chrome.runtime && chrome.runtime.id)) ||
+    (typeof browser !== 'undefined' && !!(browser && browser.runtime && browser.runtime.id));
+  if (!inContent) { fn(); return; }
   const root = document.documentElement, flag = 'data-bb-main';
   const src = '(' + fn + ')();document.documentElement.setAttribute("' + flag + '","1");';
   const put = nonce => {

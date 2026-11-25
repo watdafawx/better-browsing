@@ -23,7 +23,7 @@
   const routeOf = (path = location.pathname) => { for (const k in ROUTES) if (ROUTES[k](path)) return k; return null; };
 
   let broken = {};
-  try { broken = JSON.parse(sessionStorage.getItem(BROKEN_KEY) || '{}') || {}; } catch {}
+  try { sessionStorage.removeItem(BROKEN_KEY); } catch {}
   let escaped = false;
   try { escaped = new URLSearchParams(location.search).get('xbb') === 'native'; } catch {}
   const fails = {};
