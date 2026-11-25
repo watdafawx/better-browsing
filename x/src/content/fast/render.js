@@ -291,6 +291,83 @@
 
   // ---------- the card ----------
   const expanded = new Set();
+  const trCache = new Map();        // id -> { text, srcLang, provider, open }
+  const trBusy = new Set();
+  const UI_LANG = String((typeof navigator !== 'undefined' && navigator.language) || 'en').toLowerCase().split('-')[0];
+  const NON_LANG = new Set(['', 'und', 'zxx', 'qme', 'qht', 'qam', 'qst', 'art']);
+  const TR_ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&#39;': "'" };
+  const unescTr = s => String(s || '').replace(/&(?:amp|lt|gt|quot|apos|#39);/g, m => TR_ENT[m]);
+  function canTranslate(t) {
+    if (!t || !t.id || !t.text) return false;
+    const l = String(t.lang || '').toLowerCase().split('-')[0];
+    if (l && l === UI_LANG) return false;
+    if (t.translatable) return true;
+    return !!(l && !NON_LANG.has(l));
+  }
+  function parseTr(d) {
+    if (!d || typeof d !== 'object') return null;
+    const o = typeof d.translation === 'string' ? d
+      : (d.result && typeof d.result.translation === 'string' ? d.result
+      : (d.data && (d.data.tweet_result_by_rest_id || d.data.grok_translation || d.data.translate_tweet)) || d);
+    const raw = typeof o.translation === 'string' ? o.translation
+      : typeof o.translated_text === 'string' ? o.translated_text
+      : typeof o.text === 'string' ? o.text : '';
+    if (!raw.trim()) return null;
+    return {
+      text: unescTr(raw.trim()),
+      srcLang: String(o.localizedSourceLanguage || o.source_language || o.sourceLanguage || ''),
+      provider: String(o.translationSource || o.provider || '')
+    };
+  }
+  function trWrap(t) {
+    if (!canTranslate(t)) return null;
+    const c = trCache.get(t.id), loading = trBusy.has(t.id);
+    const label = loading ? 'Translating…' : (c && c.open ? 'Hide translation' : 'Translate post');
+    const meta = c ? ('Translated' + (c.srcLang ? ' from ' + c.srcLang : '') + (c.provider ? ' by ' + c.provider : '')) : '';
+    return h('div', { class: 'tr-wrap', 'data-tr-id': t.id },
+      h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id, disabled: loading || null }, label),
+      c && c.open ? h('div', { class: 'tr-box', dir: 'auto' },
+        meta ? h('div', { class: 'tr-meta' }, meta) : null,
+        h('div', { class: 'tr-text' }, c.text)) : null);
+  }
+  function paintTr(id, root) {
+    const t = store.tweet(id);
+    if (!t || !root) return;
+    for (const old of root.querySelectorAll(`.tr-wrap[data-tr-id="${id}"]`)) {
+      const next = trWrap(t);
+      if (next) old.replaceWith(next);
+    }
+  }
+  async function translate(id, root) {
+    if (!id || trBusy.has(id)) return;
+    const existing = trCache.get(id);
+    if (existing) { existing.open = !existing.open; paintTr(id, root); return; }
+    trBusy.add(id);
+    paintTr(id, root);
+    let r = null, parsed = null;
+    try {
+      const p = '/i/api/1.1/strato/column/None/tweetId=' + encodeURIComponent(id) +
+        ',destinationLanguage=None,translationSource=Some(Google),feature=None,satelliteTweetId=None/translation/service/translateTweet';
+      r = await XBB.gql.rest(p);
+      if (r && r.ok) parsed = parseTr(r.data);
+      if (!parsed && XBB.gql.knows) {
+        for (const op of ['GrokTranslation', 'TranslateTweet']) {
+          if (await XBB.gql.knows(op)) {
+            const g = await XBB.gql.call(op, { tweet_id: id, id });
+            if (g && g.ok) { parsed = parseTr(g.data); if (parsed) break; }
+          }
+        }
+      }
+    } catch {}
+    trBusy.delete(id);
+    if (parsed) {
+      trCache.set(id, Object.assign({ open: true }, parsed));
+      paintTr(id, root);
+    } else {
+      paintTr(id, root);
+      fast.toast('Could not translate this post' + (r && r.kind === 'rate-limit' ? ' (rate limited)' : ''));
+    }
+  }
   function fallback(id, why) {
     return h('article', { class: 'tweet tomb', 'data-id': id || '' },
       h('div', { class: 'body' }, h('span', null, why || 'This post is unavailable.'),
@@ -311,6 +388,7 @@
           t.replyTo && t.replyTo.screenName && !row.threadPrev ? h('div', { class: 'reply-to' }, 'Replying to ', h('a', { href: '/' + t.replyTo.screenName }, '@' + t.replyTo.screenName)) : null,
           t.text ? h('div', { class: 'text' + (long ? ' clamp' : ''), lang: t.lang || null, dir: 'auto' }, rich(t)) : null,
           long ? h('button', { class: 'show-more', type: 'button', 'data-act': 'more', 'data-id': t.id }, 'Show more') : null,
+          trWrap(t),
           media(t),
           quote(t.quote),
           t.card && t.card.kind === 'poll' ? poll(t.card) : t.card && t.card.kind === 'link' && !(t.media || []).length ? linkCard(t.card) : null,
@@ -458,6 +536,7 @@
         if (txt) txt.classList.remove('clamp');
         btn.remove();
       } else if (k === 'reveal') { revealed.add(id); ctx && ctx.refresh && ctx.refresh(id); }
+      else if (k === 'translate') translate(id, (ctx && ctx.root) || (art && art.getRootNode()));
       else if (k === 'like') toggle('like', id);
       else if (k === 'bm') toggle('bm', id);
       else if (k === 'rt') { if (e.shiftKey || XBB.settings.quickRetweet === false) rtMenu(btn, id, ctx.root); else toggle('rt', id); }
