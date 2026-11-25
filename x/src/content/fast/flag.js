@@ -182,12 +182,24 @@
     toNative(url) {
       // From a post in the drawer, X's own page is that post (X's router follows the URL we are already on)
       if (!url && state && state.owned) { const o = ovState(); if (o && Array.isArray(o.drawer) && o.drawer.length) url = here(); }
+      if (XBB.ext && XBB.ext.blocking()) {
+        const u = new URL(url || location.href, location.href);
+        if (!url) u.searchParams.set('xbb', 'native');
+        XBB.ext.setBlock(false, { reload: true, url: u.href, reason: 'to-native' });
+        return;
+      }
       if (url) { navigateX(url); update(); return; }
       escaped = true;
       update();
     },
     toFast() {
       if (!XBB.settings.fastUi) return;
+      if (XBB.ext && !XBB.ext.blocking() && XBB.ext.hasCachedHome()) {
+        const u = new URL(routeOf() ? location.href : 'https://x.com/home');
+        u.searchParams.delete('xbb');
+        XBB.ext.setBlock(true, { reload: true, url: u.href, reason: 'to-fast' });
+        return;
+      }
       escaped = false;
       const r = routeOf();
       if (r && broken[r]) toast(`Fast UI is off for ${LABEL[r]} until the next page load (X changed something)`);
@@ -206,6 +218,10 @@
       try { sessionStorage.setItem(BROKEN_KEY, JSON.stringify(broken)); } catch {}
       const was = state && state.owned && state.route === route;
       update();
+      if (was && XBB.ext && XBB.ext.blocking()) {
+        XBB.ext.setBlock(false, { reload: true, reason: 'breaker:' + route });
+        return;
+      }
       if (was) toast(`X changed something; showing X's own page for ${LABEL[route] || route}`);
     }
   });

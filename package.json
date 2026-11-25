@@ -13,6 +13,8 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.js",
+    "build:x:ext": "node x/ext/build-ext.js",
+    "dev:x:ext": "node x/ext/dev-server.js",
     "test": "node build.js && node test/offline.mjs",
     "test:instagram": "node build.js && node test/instagram-offline.mjs",
     "test:x": "node build.js && node test/x-offline.mjs",

@@ -176,7 +176,9 @@
   function scanCache() {
     const c = wreq && wreq.c;
     if (!isObj(c)) return;
-    for (const id of Object.keys(c)) { try { scanExports(c[id] && c[id].exports, 0); } catch {} }
+    const keys = Object.keys(c);
+    if (keys.length > 500) return;   // never stall main thread scanning X's 10k+ live modules synchronously
+    for (const id of keys) { try { scanExports(c[id] && c[id].exports, 0); } catch {} }
   }
 
   function scanFactory(id, f) {

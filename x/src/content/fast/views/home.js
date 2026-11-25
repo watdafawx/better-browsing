@@ -166,14 +166,16 @@
       if (paused || list.loading || list.done || !list.cursors.bottom || !list.rows.length) return;
       request(tab, 'bottom');
     }
-    // Nothing tapped yet: X may still be booting. Ask ourselves only after a while.
+    // Nothing tapped yet: when the MV3 extension is blocking X's JS (Zero-JS mode), X will never make a
+    // passive tap, so fetch immediately at 0 ms. Otherwise give X a brief head start to tap its boot call.
     let fallbackT = 0;
     function ensure(name) {
       clearTimeout(fallbackT);
       const list = lists[name];
       if (list.rows.length || list.loading) return;
-      if (name === 'foryou') fallbackT = setTimeout(() => { if (!dead && !lists.foryou.rows.length) request('foryou', 'replace'); }, FALLBACK_MS);
-      else request(name, 'replace');
+      if (name === 'foryou' && !(XBB.ext && XBB.ext.blocking())) {
+        fallbackT = setTimeout(() => { if (!dead && !lists.foryou.rows.length) request('foryou', 'replace'); }, FALLBACK_MS);
+      } else request(name, 'replace');
     }
 
     // ---------- state ----------
