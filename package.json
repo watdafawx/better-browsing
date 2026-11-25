@@ -21,6 +21,7 @@
     "test:x:api": "node build.js && node test/x-api-offline.mjs",
     "test:x:fast": "node build.js && node test/x-fast-home-offline.mjs",
     "test:x:overlay": "node build.js && node test/x-fast-overlay-offline.mjs",
+    "test:x:m4": "node build.js && node test/x-fast-m4-offline.mjs",
     "test:pinterest": "node build.js && node test/pinterest-offline.mjs",
     "test:headers": "node build.js && node test/headers.mjs",
     "test:double": "node build.js && node test/double-install.mjs",

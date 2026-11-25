@@ -374,6 +374,14 @@ by hand on real x.com in Chrome and Firefox (Violentmonkey + Tampermonkey) with 
   `HomeTimeline` response, no long task > 50 ms while scrolling, ≤ 2 MB extra heap per 1,000 tweets.
 - README: "Fast UI (beta)" section in `x/README.md` and the main README feature list.
 
+### As shipped
+
+The order changed: 1.3.0 shipped the lightbox, the thread drawer and the keys (planned for M3/M4) as Milestone 3;
+1.4.0 shipped Milestone 4 as profile, search, bookmarks, a notifications popout (read-only) and a messages drawer
+(inbox, conversation, sending), all on `fast/feed.js` and X's REST API where X uses it (`XBB.gql.rest`).
+Explore, compose, polls and `XBB.fast.perf()` are still to come. None of the M4 views can fail Home: their ops are
+not in `ROUTE_OPS`, and an op not learned yet is an inline banner with Open on X.
+
 ## 9. Risks
 
 | Risk | Mitigation |

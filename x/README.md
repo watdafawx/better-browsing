@@ -39,9 +39,21 @@ With Fast UI on, nothing on Home navigates away any more:
 
 Back, Esc or a click beside an overlay closes one level.
 
+## Fast UI views (1.4.0)
+
+More of X now opens inside Fast UI, without leaving the page you were on:
+
+- **Profiles** (`/<handle>`, Replies, Media): banner, avatar, name, bio, location, website, join date, following and followers, and Follow / Unfollow (instant; undone if X refuses). Author names and @handles open them.
+- **Search** (the sidebar box, hashtags): a sticky search bar and Top / Latest / People / Media tabs; People shows account cards.
+- **Bookmarks** (`/i/bookmarks`), with paging.
+- **Notifications**: the bell opens a popout next to it (a sheet on narrow screens) with All and Mentions and the unread badge; a post opens in the thread drawer, a person opens their profile. Your scroll position never moves.
+- **Messages**: the envelope opens a drawer with your inbox; a conversation shows its messages and a reply box (sent at once, taken back if X refuses). End-to-end encrypted conversations and calls open in X's own XChat (one click).
+
+If X has not yet shown Fast UI how a page loads in this session, that page says "not learned yet" with an Open on X button; one visit teaches it. Home is never affected by that.
+
 ## Test
 
-`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. `npm run test:x:api` covers the Fast UI engine in the same way (fake webpack chunks, fake GraphQL backend, payload fixtures). `npm run test:x:fast` and `npm run test:x:overlay` cover the Fast UI shell, Home and the overlays on a mock x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
+`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. `npm run test:x:api` covers the Fast UI engine in the same way (fake webpack chunks, fake GraphQL backend, payload fixtures). `npm run test:x:fast`, `npm run test:x:overlay` and `npm run test:x:m4` cover the Fast UI shell, Home, the overlays and the profile, search, bookmarks, notifications and messages views on a mock x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
 
 ## Firefox
 

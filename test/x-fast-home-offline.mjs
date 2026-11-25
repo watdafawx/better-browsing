@@ -368,11 +368,12 @@ const scrollToTweet = (page, id, block = 'center') => page.evaluate(([id, block]
   // links to a page Fast UI does not own go to X's own router; Back brings Fast UI where it was
   await page.evaluate(() => scrollTo(0, 400));
   await frames(page);
-  await page.evaluate(() => document.querySelector('xbb-fast').shadowRoot.querySelector('article.tweet[data-id="1004"] a.name').click());
+  // (profiles, search and bookmarks are Fast UI's own since M4; Explore is still X's)
+  await page.evaluate(() => document.querySelector('xbb-fast').shadowRoot.querySelector('.rail a[href="/explore"]').click());
   await page.waitForTimeout(400);
   o = await owner(page);
   const xNav = await page.evaluate(() => window.__xNav.slice());
-  check('router: a link to a profile hands the page to X\'s router (no reload)', o.path === '/bob' && o.attr === null && o.react !== 'none' && o.fast === 'none' && xNav.includes('/bob') && o.entry === 1, { o, xNav });
+  check('router: a link to a page Fast UI does not own (Explore) hands it to X\'s router (no reload)', o.path === '/explore' && o.attr === null && o.react !== 'none' && o.fast === 'none' && xNav.includes('/explore') && o.entry === 1, { o, xNav });
   await page.evaluate(() => history.back());
   await page.waitForTimeout(500);
   o = await owner(page);

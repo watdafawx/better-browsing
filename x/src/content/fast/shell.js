@@ -1,10 +1,12 @@
 /* X Fast UI: the shell. One <xbb-fast> element after #react-root with an open shadow root (X's CSS and ours never
    meet), a top bar (brand, stats, theme, "Native X"), the left rail, the centre column the view fills and the right
    sidebar. Layout and look: x/fast-ui-mock.html.
-     XBB.fast.shell.mount()  -> { host, root, main, setStat(text), applyTheme(), destroy() }   (idempotent)
+     XBB.fast.shell.mount()  -> { host, root, main, setStat(text), setView(view, state), setBadge(kind, n), applyTheme(),
+                                 destroy() }   (idempotent)
    Themes: Lights Out ("black"), Dim, Light; "auto" follows X's own night_mode cookie (0 light, 1 dim, 2 black).
    Clicks are delegated on the shadow root: render.click first (actions, cards), then links: a route Fast UI owns
-   stays here, anything else is handed to X's own router (XBB.fast.toNative(url)). */
+   stays here (XBB.fast.go: Home, a profile, a search, bookmarks), anything else is handed to X's own router.
+   Notifications opens the popout over the current view, Messages the DM drawer; both keep the view and its scroll. */
 (() => {
   const { h } = XBB;
   const fast = XBB.fast;
@@ -57,25 +59,27 @@
       h('div', { class: 'brand' }, I('bolt', 'i fill'), h('span', null, 'Better Browsing'), h('small', null, 'Fast UI')),
       h('span', { class: 'spacer' }), stat, seg, nativeBtn);
 
-    const nav = (href, ic, label, extra = {}) => h('a', Object.assign({ class: 'nav' + (extra.wide ? ' wide' : ''), href }, extra.attrs || {}),
-      I(ic), h('span', { class: 'label' }, label), extra.ext ? I('ext', 'i ext') : null);
+    const badges = {};
+    const nav = (href, ic, label, extra = {}) => h('a', Object.assign({ class: 'nav' + (extra.wide ? ' wide' : ''), href, 'data-route': extra.route || null }, extra.attrs || {}),
+      h('span', { class: 'nic' }, I(ic), extra.badge ? (badges[extra.badge] = h('span', { class: 'nbadge', hidden: true, 'aria-hidden': 'true' })) : null),
+      h('span', { class: 'label' }, label), extra.ext ? I('ext', 'i ext') : null);
     const rail = h('nav', { class: 'rail', 'aria-label': 'Fast UI' },
-      nav('/home', 'home', 'Home', { attrs: { 'aria-current': 'page' } }),
+      nav('/home', 'home', 'Home', { route: 'home', attrs: { 'aria-current': 'page' } }),
       nav('/explore', 'explore', 'Explore', { ext: true }),
-      nav('/notifications', 'bell', 'Notifications', { ext: true }),
-      nav('/messages', 'mail', 'Messages', { ext: true, wide: true }),
-      nav('/i/bookmarks', 'bm', 'Bookmarks', { ext: true, wide: true }),
-      nav('/i/profile', 'user', 'Profile', { ext: true, attrs: { 'data-profile': '' } }),
+      nav('/notifications', 'bell', 'Notifications', { badge: 'notifications', attrs: { 'data-nt-open': '', 'aria-haspopup': 'dialog' } }),
+      nav('/messages', 'mail', 'Messages', { badge: 'messages', attrs: { 'data-dm-open': '', 'aria-haspopup': 'dialog' } }),
+      nav('/i/bookmarks', 'bm', 'Bookmarks', { wide: true, route: 'bookmarks' }),
+      nav('/i/profile', 'user', 'Profile', { route: 'me', attrs: { 'data-profile': '' } }),
       h('a', { class: 'nav wide', href: '#', 'data-xbb-settings': '' }, I('gear'), h('span', { class: 'label' }, 'Settings')),
       h('a', { class: 'post-btn', href: '/compose/post' }, I('pen'), h('span', null, 'Post')));
 
-    const main = h('main', { 'aria-label': 'Home timeline' });
+    const main = h('main', { 'aria-label': 'Timeline' });
     const search = h('input', { type: 'search', name: 'q', placeholder: 'Search on X', autocomplete: 'off', 'aria-label': 'Search on X' });
     const side = h('aside', { class: 'side' },
       h('form', { class: 'search', role: 'search', 'data-xbb-search': '' }, h('label', null, I('explore'), search)),
       h('section', { class: 'card' },
         h('h2', null, 'Fast UI'),
-        h('p', null, 'Home, without the wait. Everything else opens X\'s own page.'),
+        h('p', null, 'Home, profiles, search, bookmarks, notifications and messages, without the wait. Everything else opens X\'s own page.'),
         h('p', null, h('kbd', null, 'Alt'), ' + ', h('kbd', null, 'Shift'), ' + ', h('kbd', null, 'X'), ' switches between this and X\'s page.'),
         h('a', { class: 'row', href: '#', 'data-xbb-settings': '' }, 'Fast UI settings')),
       h('div', { class: 'foot' },
@@ -103,6 +107,10 @@
       if (pick) { XBB.saveSetting('fastUiTheme', pick.dataset.themePick); XBB.settings.fastUiTheme = pick.dataset.themePick; applyTheme(); return; }
       if (t.closest('[data-xbb-to-native]')) { e.preventDefault(); fast.toNative(); return; }
       if (t.closest('[data-xbb-settings]')) { e.preventDefault(); XBB.openSettings && XBB.openSettings(); return; }
+      const nt = t.closest('[data-nt-open]');
+      if (nt && !e.ctrlKey && !e.metaKey && fast.notifications) { e.preventDefault(); fast.notifications.toggle(nt); return; }
+      const dm = t.closest('[data-dm-open]');
+      if (dm && !e.ctrlKey && !e.metaKey && fast.messages) { e.preventDefault(); fast.messages.open(); return; }
       if (view && view.click && view.click(e)) return;
       if (fast.render.click(e, { root, refresh: id => view && view.refresh && view.refresh(id) })) return;
       const a = t.closest('a[href]');
@@ -112,22 +120,22 @@
       if (u.origin !== location.origin) return;
       e.preventDefault();
       if (a.hasAttribute('data-profile')) {
-        const p = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
-        u = new URL(p ? p.getAttribute('href') : '/home', location.href);
+        const me = fast.me();
+        if (!me.screenName) { fast.toNative('/i/profile'); return; }
+        u = new URL('/' + me.screenName, location.href);
       }
-      const target = u.pathname + u.search + u.hash;
-      if (fast.routeOf(u.pathname)) {
-        if (u.pathname !== location.pathname) fast.navigateX(target);
-        if (view && view.top) view.top();
-        fast.update();
-      } else fast.toNative(target);
+      // the page we are on: back to its top (a click on Home while on Home)
+      if (u.pathname + u.search === fast.routeUrl() && !fast.ov.isOurs()) { if (view && view.top) view.top(); return; }
+      fast.go(u.pathname + u.search + u.hash);
     });
     root.addEventListener('submit', e => {
       const f = firstEl(e).closest('[data-xbb-search]');
       if (!f) return;
       e.preventDefault();
       const q = search.value.trim();
-      if (q) fast.toNative('/search?q=' + encodeURIComponent(q) + '&src=typed_query');
+      if (!q) return;
+      search.blur();
+      fast.go(fast.views && fast.views.search ? fast.views.search.urlFor(q, 'top') : '/search?q=' + encodeURIComponent(q) + '&src=typed_query');
     });
     // Prefetch thread replies on 220ms hover or pointerdown (max 1 hover prefetch in flight) so comments
     // are already loaded or in flight by the time the click opens the drawer.
@@ -163,7 +171,33 @@
     shell = {
       host, root, main, styleMode: how,
       setStat(text) { if (stat.textContent !== text) stat.textContent = text; },
-      setView(v) { view = v; },
+      setView(v, s) {
+        view = v;
+        if (v && v.el && v.el.parentNode !== main) main.replaceChildren(v.el);
+        // the rail marks where we are (Profile: only on the logged-in user's own profile)
+        let here = s ? s.route : '';
+        if (here === 'profile') {
+          const me = fast.me(), p = fast.handleOf(new URL(s.url, location.href).pathname);
+          here = me.screenName && p && p.handle.toLowerCase() === me.screenName.toLowerCase() ? 'me' : '';
+        }
+        for (const a of rail.querySelectorAll('[data-route]')) {
+          if (a.dataset.route === here) { if (a.getAttribute('aria-current') !== 'page') a.setAttribute('aria-current', 'page'); }
+          else if (a.hasAttribute('aria-current')) a.removeAttribute('aria-current');
+        }
+        const label = (s && { home: 'Home timeline', bookmarks: 'Bookmarks', search: 'Search results', profile: 'Profile' }[s.route]) || 'Timeline';
+        if (main.getAttribute('aria-label') !== label) main.setAttribute('aria-label', label);
+      },
+      // unread counts on the rail (n > 0 shows it; 0 or null hides it)
+      setBadge(kind, n) {
+        const b = badges[kind];
+        if (!b) return;
+        const v = +n > 0 ? (+n > 99 ? '99+' : String(+n)) : '';
+        b.hidden = !v;
+        if (b.textContent !== v) b.textContent = v;
+        const a = b.closest('a');
+        if (a) a.setAttribute('aria-label', a.querySelector('.label').textContent + (v ? ' (' + v + ' unread)' : ''));
+      },
+      rail,
       applyTheme,
       destroy() {
         if (typeof offSettings === 'function') offSettings();

@@ -113,6 +113,11 @@
     const p = e.composedPath ? e.composedPath() : [];
     if (document.querySelector('.xbb-settings')) return;     // the settings panel is open: nothing here acts
     if (e.defaultPrevented) return;
+    // the notifications popout and the messages drawer keep their own keys (Esc, Enter, typing); X's hidden page gets none
+    if ((fast.notifications && fast.notifications.isOpen()) || (fast.messages && fast.messages.isOpen() && !drOpen() && !lbOpen())) {
+      if (k && k.length === 1) e.stopImmediatePropagation();
+      return;
+    }
     let done = true;
     const lb = lbOpen(), dr = drOpen();
     if (k === 'j' || k === 'k') {
@@ -127,7 +132,9 @@
       }
       if (done) {
         const id = lb ? null : (dr ? (drawerKey || null) : feedKey);
-        if (id && fast.drawer && !(dr && id === fast.drawer.focal())) fast.drawer.open(id);
+        const ur = !lb && !dr && id && id[0] === 'u' && store.user(id.slice(1));
+        if (ur) { if (ur.screenName) fast.go('/' + ur.screenName); else done = false; }
+        else if (id && fast.drawer && !(dr && id === fast.drawer.focal())) fast.drawer.open(id);
         else done = false;
       }
     } else if (k === 'm') {
@@ -162,7 +169,9 @@
   function clear() { feedKey = null; drawerKey = null; paintFeed(); paintDrawer(); }
   // a drawer level that changes takes its ring with it; leaving the route takes the feed ring
   fast.ov.onChange(c => { if (!c.drawer.length) drawerKey = null; });
-  if (fast.onChange) fast.onChange(s => { if (!s.owned) { feedKey = null; drawerKey = null; } });
+  // another view (or none): the ring was on one of the old view's rows
+  let viewUrl = '';
+  if (fast.onChange) fast.onChange(s => { if (!s.owned || s.url !== viewUrl) { feedKey = null; drawerKey = null; } viewUrl = s.url; });
 
   fast.keys = { mark, clear, focusId: () => targetId(), debug: () => ({ feed: feedKey, drawer: drawerKey, last, on: on() }) };
 })();
