@@ -224,6 +224,28 @@
     }
   });
 
+  // ---- unpacked Chrome auto-reload: if manifest.json on disk has a newer version, reload automatically ----
+  if (!DEV) {
+    let lastDiskCheck = 0, diskReloading = false;
+    const loadedVer = api.runtime.getManifest().version;
+    const checkDiskManifest = async () => {
+      const now = Date.now();
+      if (diskReloading || now - lastDiskCheck < 10000) return;
+      lastDiskCheck = now;
+      try {
+        const r = await fetch(api.runtime.getURL('manifest.json'), { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && j.version && j.version !== loadedVer) {
+          diskReloading = true;
+          api.runtime.reload();
+        }
+      } catch {}
+    };
+    if (api.tabs && api.tabs.onActivated) api.tabs.onActivated.addListener(() => checkDiskManifest());
+    if (api.tabs && api.tabs.onUpdated) api.tabs.onUpdated.addListener((_id, info) => { if (info.status === 'loading') checkDiskManifest(); });
+  }
+
   // ---- dev: hot reload + live log ----
   if (DEV) {
     let reloading = false;
