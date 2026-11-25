@@ -198,7 +198,7 @@
   function media(t, small) {
     const list = (t.media || []).slice(0, 4);
     if (!list.length) return null;
-    const hidden = t.sensitive && !revealed.has(t.id);
+    const hidden = t.sensitive && !(XBB.settings && XBB.settings.fastUiShowSensitive) && !revealed.has(t.id);
     let box;
     if (list.length === 1 && (list[0].type === 'video' || list[0].type === 'gif') && !hidden && !small) box = videoBox(list[0], t);
     else if (hidden || small) {
@@ -207,12 +207,17 @@
         const src = photoSrc(m.type === 'photo' ? m.url : m.poster, 'small');
         return h('div', { class: 'ph', style: list.length === 1 ? { aspectRatio: String(Math.max(ratio(m), 0.75)) } : null },
           src ? h('img', { src, alt: m.alt || '', loading: 'lazy', decoding: 'async' }) : null,
-          m.type !== 'photo' ? h('span', { class: 'playmark' }, icon('play', 'i fill')) : null);
+          !hidden && m.type !== 'photo' ? h('span', { class: 'playmark' }, icon('play', 'i fill')) : null);
       }));
     } else box = h('div', { class: 'media n' + list.length }, list.map((m, i) => cell(m, t, i, list.length)));
     if (!hidden) return box;
     return h('div', { class: 'sens' }, box,
-      h('button', { class: 'reveal', type: 'button', 'data-act': 'reveal', 'data-id': t.id }, icon('eye'), h('span', null, 'Sensitive content'), h('b', null, 'Show')));
+      h('div', { class: 'reveal' },
+        icon('eye'),
+        h('span', { class: 'sens-title' }, 'Sensitive content'),
+        h('div', { class: 'sens-acts' },
+          h('button', { class: 'sens-btn primary', type: 'button', 'data-act': 'reveal', 'data-id': t.id }, 'Show'),
+          h('button', { class: 'sens-btn', type: 'button', 'data-act': 'reveal-always', 'data-id': t.id }, 'Always show'))));
   }
 
   // ---------- cards ----------
@@ -604,6 +609,17 @@
         if (txt) txt.classList.remove('clamp');
         btn.remove();
       } else if (k === 'reveal') { revealed.add(id); ctx && ctx.refresh && ctx.refresh(id); }
+      else if (k === 'reveal-always') {
+        if (XBB.settings) XBB.settings.fastUiShowSensitive = true;
+        XBB.saveSetting && XBB.saveSetting('fastUiShowSensitive', true);
+        fast.toast('Showing sensitive media (toggle in Settings)');
+        if (ctx && ctx.refresh) {
+          const root = (ctx && ctx.root) || (art && art.getRootNode());
+          const ids = new Set([id]);
+          if (root && root.querySelectorAll) for (const a of root.querySelectorAll('article.tweet[data-id]')) if (a.querySelector('.sens')) ids.add(a.dataset.id);
+          for (const tid of ids) ctx.refresh(tid);
+        }
+      }
       else if (k === 'translate') translate(id, (ctx && ctx.root) || (art && art.getRootNode()));
       else if (k === 'tr-auto') {
         const lang = btn.dataset.lang, name = btn.dataset.name || lang;

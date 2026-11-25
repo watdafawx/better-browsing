@@ -299,7 +299,21 @@
     addEventListener('scroll', onScrollHide, { passive: true });
     root.addEventListener('keydown', e => { if (e.key === 'Escape' && hcHandle) hcClose(); });
 
-    const offSettings = XBB.onSettings(() => { applyTheme(); fast.render.scanAuto && fast.render.scanAuto(root); });
+    let lastSens = !!(XBB.settings && XBB.settings.fastUiShowSensitive);
+    const offSettings = XBB.onSettings(() => {
+      applyTheme();
+      fast.render.scanAuto && fast.render.scanAuto(root);
+      const nowSens = !!(XBB.settings && XBB.settings.fastUiShowSensitive);
+      if (nowSens !== lastSens) {
+        lastSens = nowSens;
+        if (view && view.refresh && view.list) {
+          for (const n of view.list().nodes()) {
+            const t = n._key && fast.store.tweet(n._key);
+            if (t && t.sensitive) view.refresh(n._key);
+          }
+        }
+      }
+    });
     applyTheme();
     const rr = document.getElementById('react-root');
     if (rr && rr.parentNode === document.body) rr.after(host); else document.body.append(host);
