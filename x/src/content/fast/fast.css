@@ -245,6 +245,83 @@ main { min-width: 0; border-inline: 1px solid var(--line); min-height: calc(100v
 .side .foot .bb { flex-basis: 100%; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
 .side .foot .bb svg { color: var(--accent); }
 
+/* ---------- overlays: what opens them in a card ---------- */
+.vid .expand, .media .ph.v .expand { position: absolute; top: 8px; right: 8px; z-index: 2; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(0 0 0 / .6); opacity: 0; transition: opacity .12s; }
+.vid:hover .expand, .media .ph.v:hover .expand, .expand:focus-visible { opacity: 1; }
+.expand svg { width: 18px; height: 18px; }
+.vid.gif, .media .ph.v.gif { cursor: zoom-in; }
+.tweet.kfocus { background: var(--bg-hover); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tweet.focal { cursor: default; }
+.tweet.focal:hover { background: none; }
+.tweet.focal .text { font-size: 17px; line-height: 24px; }
+.fulldate { margin-top: 12px; padding: 12px 0; border-block: 1px solid var(--line); color: var(--muted); }
+.fulldate b { color: var(--text); }
+.tweet.focal .actions { margin-top: 4px; max-width: none; }
+
+/* ---------- media lightbox (a dialog in the top layer; always dark, whatever the theme) ---------- */
+dialog.lb { --text: #e7e9ea; --muted: #a3aab0; --line: rgb(255 255 255 / .18); --bg-2: rgb(255 255 255 / .08); --bg-hover: rgb(255 255 255 / .06); color-scheme: dark; }
+dialog.lb[open] { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) auto; background: rgb(0 0 0 / .94); color: var(--text); font: 15px/20px var(--font); overflow: hidden; outline: 0; }
+dialog.lb::backdrop { background: rgb(0 0 0 / .6); }
+.lb-top { display: flex; align-items: center; gap: 6px; padding: 0 10px; z-index: 2; }
+.lb-top .spacer, .dr-head .spacer { flex: 1; }
+.lb-top button, .lb-nav { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgb(0 0 0 / .45); }
+.lb-top button:hover, .lb-nav:hover:not(:disabled) { background: rgb(255 255 255 / .16); }
+.lb-top .lb-alt-btn { width: auto; padding: 0 10px; border-radius: 6px; font: 700 13px var(--font); }
+.lb-top [aria-pressed="true"] { background: rgb(255 255 255 / .22); }
+.lb-count { font-variant-numeric: tabular-nums; font-weight: 700; padding-left: 6px; }
+.lb-stage { min-height: 0; display: flex; overflow: hidden; }
+.lb-stage > img, .lb-stage > video, .lb-stage > .novid { margin: auto; max-width: 100%; max-height: 100%; display: block; object-fit: contain; user-select: none; }
+.lb-stage > img { cursor: zoom-in; }
+dialog.lb[data-zoom] .lb-stage { overflow: auto; }
+dialog.lb[data-zoom] .lb-stage > img { max-width: none; max-height: none; cursor: zoom-out; }
+.lb-nav { position: fixed; top: 50%; translate: 0 -50%; z-index: 2; width: 44px; height: 44px; }
+.lb-nav.prev { left: 14px; }
+.lb-nav.next { right: 14px; }
+.lb-nav:disabled { opacity: .3; cursor: default; }
+.lb-alt { position: fixed; left: 50%; translate: -50% 0; bottom: 96px; max-width: min(640px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: rgb(0 0 0 / .8); color: #fff; white-space: pre-wrap; z-index: 2; }
+.lb-bar { display: flex; align-items: center; gap: 16px; padding: 8px 16px 10px; border-top: 1px solid var(--line); background: rgb(0 0 0 / .6); z-index: 2; }
+.lb-meta { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.lb-who { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.lb-who b { overflow: hidden; text-overflow: ellipsis; }
+.lb-who .handle { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.lb-text { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-acts { display: flex; align-items: center; gap: 4px; flex: none; }
+.lb-thread { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); font-weight: 700; }
+.lb-thread:hover { background: var(--bg-2); }
+.lb-thread svg { width: 18px; height: 18px; }
+
+/* ---------- thread drawer (a dialog the size of the window; the panel docks right, or sits centred) ---------- */
+dialog.drawer[open] { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; display: flex; justify-content: flex-end; background: transparent; color: var(--text); font: 15px/20px var(--font); overflow: hidden; outline: 0; }
+dialog.drawer::backdrop { background: rgb(0 0 0 / .45); }
+.dr-panel { width: min(680px, 100vw); height: 100%; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--line); box-shadow: var(--shadow); animation: dr-in .18s ease-out; }
+@keyframes dr-in { from { translate: 40px 0; opacity: .4; } }
+dialog.drawer.center { justify-content: center; align-items: center; }
+dialog.drawer.center .dr-panel { width: min(640px, calc(100vw - 24px)); height: min(92vh, 1000px); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; animation-name: dr-pop; }
+@keyframes dr-pop { from { scale: .97; opacity: .4; } }
+.dr-head { display: flex; align-items: center; gap: 6px; height: 53px; padding: 0 10px; border-bottom: 1px solid var(--line); flex: none; }
+.dr-head h2 { margin: 0 0 0 6px; font-size: 20px; line-height: 24px; }
+.dr-btn { height: 36px; min-width: 36px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; }
+.dr-btn:hover { background: var(--bg-2); }
+.dr-native { font-weight: 700; font-size: 14px; }
+.dr-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.dr-anc .tweet { border-bottom: 0; }
+.dr-anc .tweet::before { content: ""; position: absolute; left: 35px; top: 60px; bottom: 0; width: 2px; background: var(--line); }
+.dr-banner { margin: 12px 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); color: var(--text); }
+.dr-banner p { margin: 0; }
+.dr-banner.empty { border: 0; background: none; color: var(--muted); text-align: center; }
+.dr-bbtns { display: flex; gap: 8px; margin-top: 10px; }
+.btn.ghost { background: none; color: var(--text); border: 1px solid var(--line); }
+.dr-more { padding: 0 0 40px; }
+.dr-morebtn { display: block; width: 100%; padding: 16px; color: var(--accent); text-align: left; }
+.dr-morebtn:hover { background: var(--bg-hover); }
+@media (max-width: 760px) {
+  .dr-native span { display: none; }
+  .lb-bar { flex-wrap: wrap; gap: 6px; }
+  .lb-acts { width: 100%; justify-content: space-between; }
+  .lb-thread span { display: none; }
+  .lb-nav { display: none; }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1279px) {
   .layout { grid-template-columns: 88px minmax(0, 600px) 350px; }

@@ -8,7 +8,7 @@
      - Next page: within three screens of the end, the tab's own variables with the bottom cursor, one at a time.
      - Schema guard: a 200 that holds no timeline at all fails the route hard (X gets Home back); a failed page
        load is a soft failure (three in five minutes do the same).
-   XBB.fast.views.home(shell) -> { el, click(e), refresh(id), top(), pause(on), resume(), destroy(), debug() } */
+   XBB.fast.views.home(shell) -> { el, click(e), refresh(id), top(), showPending(), pending(), pause(on), list(), destroy(), debug() } */
 (() => {
   const { h } = XBB;
   const fast = XBB.fast, store = fast.store, render = fast.render;
@@ -51,7 +51,7 @@
       overscan: 1,
       estimate: render.estimate,
       mount(row, node) { node.append(render.tweet(store.tweet(row.id), row)); },
-      attached: node => render.attach(node),
+      attached: node => { render.attach(node); if (fast.keys) fast.keys.mark(node); },
       unmount: node => render.release(node),
       onNearEnd: () => loadMore(),
       onError: e => fast.fail('home', 'render: ' + (e && e.message), false)
@@ -241,7 +241,8 @@
     sync();
 
     return {
-      el, click, refresh, top,
+      el, click, refresh, top, showPending,
+      pending: () => lists[tab].pending.length,
       pause(on) {
         paused = !!on;
         if (on) lists[tab].scroll = scrollY;

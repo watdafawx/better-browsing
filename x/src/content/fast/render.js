@@ -6,7 +6,8 @@
      render.attach(node)     after the node is in the shadow root: its videos join XBB.videoPolicy, its action bar
                              follows the store
      render.release(node)    before the node goes back to the pool: videos stopped and unloaded, subscriptions off
-     render.click(e, ctx)    the delegated click handler (actions, "Show more", sensitive reveal, opening a tweet)
+     render.click(e, ctx)    the delegated click handler (actions, "Show more", sensitive reveal; a photo or a video's
+                             expand button opens the media lightbox, the card, its time or Reply the thread drawer)
      render.estimate(row)    first guess of a row's height, until the ResizeObserver measures it
    Actions (Reply, Retweet, Like, Like + Retweet, Bookmark, copy embed link) update the store first and undo
    themselves with a toast when X refuses the mutation. */
@@ -37,7 +38,17 @@
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
     pen: '<path d="M4 20l4-1 11-11-3-3L5 16z"/>',
     bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-    quote: '<path d="M4 20l4-1 11-11-3-3L5 16z"/>'
+    quote: '<path d="M4 20l4-1 11-11-3-3L5 16z"/>',
+    left: '<path d="M15 5l-7 7 7 7"/>',
+    right: '<path d="M9 5l7 7-7 7"/>',
+    back: '<path d="M20 12H5M11 5l-7 7 7 7"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    zoom: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8M10.5 7.5v6M7.5 10.5h6"/>',
+    full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/>',
+    thread: '<path d="M4 12a8 8 0 0 1 8-7h1a7 7 0 0 1 0 14H9l-5 3v-4.5A7.9 7.9 0 0 1 4 12z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>',
+    panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/>',
+    center: '<rect x="5" y="4" width="14" height="16" rx="2"/>'
   };
   const tpl = new Map();
   function icon(name, cls = 'i') {
@@ -159,16 +170,19 @@
     v.src = src;
     return v;
   }
+  // The button that opens a video in the lightbox (a GIF opens on a click anywhere: it has no controls)
+  const expandBtn = i => h('button', { class: 'expand', type: 'button', 'data-lb': String(i), title: 'Open in the viewer', 'aria-label': 'Open in the viewer' }, icon('expand'));
   function videoBox(m, t) {
-    const r = ratio(m);
-    return h('div', { class: 'vid' + (m.type === 'gif' ? ' gif' : ''), 'data-testid': 'videoPlayer', style: { aspectRatio: String(Math.max(r, 0.8)) } },
+    const r = ratio(m), gif = m.type === 'gif';
+    return h('div', { class: 'vid' + (gif ? ' gif' : ''), 'data-testid': 'videoPlayer', 'data-lb': gif ? '0' : null, style: { aspectRatio: String(Math.max(r, 0.8)) } },
       h('div', { class: 'vc', 'data-testid': 'videoComponent' }, videoEl(m, t)),
-      m.type === 'gif' ? h('span', { class: 'tag' }, 'GIF') : null);
+      gif ? h('span', { class: 'tag' }, 'GIF') : expandBtn(0));
   }
   function cell(m, t, i, n) {
-    if (m.type === 'video' || m.type === 'gif') return h('div', { class: 'ph v', 'data-testid': 'videoPlayer' }, h('div', { class: 'vc', 'data-testid': 'videoComponent' }, videoEl(m, t)));
+    const gif = m.type === 'gif';
+    if (m.type === 'video' || gif) return h('div', { class: 'ph v' + (gif ? ' gif' : ''), 'data-testid': 'videoPlayer', 'data-lb': gif ? String(i) : null }, h('div', { class: 'vc', 'data-testid': 'videoComponent' }, videoEl(m, t)), gif ? null : expandBtn(i));
     const src = photoSrc(m.url, n === 1 ? 'medium' : 'small');
-    return h('a', { class: 'ph', href: path(t) + '/photo/' + (i + 1), 'aria-label': m.alt || `Photo ${i + 1} of ${n}`, style: n === 1 ? { aspectRatio: String(Math.max(ratio(m), 0.75)) } : null },
+    return h('a', { class: 'ph', href: path(t) + '/photo/' + (i + 1), 'data-lb': String(i), 'aria-label': m.alt || `Photo ${i + 1} of ${n}`, style: n === 1 ? { aspectRatio: String(Math.max(ratio(m), 0.75)) } : null },
       src ? h('img', { src, alt: m.alt || '', loading: 'lazy', decoding: 'async', width: m.width || null, height: m.height || null }) : null,
       m.alt ? h('span', { class: 'alt', title: m.alt }, 'ALT') : null);
   }
@@ -197,7 +211,7 @@
   function quote(q) {
     if (!q) return null;
     if (q.unavailable || q.type !== 'tweet') return h('div', { class: 'quote tomb' }, q.reason || 'This post is unavailable.');
-    return h('div', { class: 'quote', 'data-href': path(q), role: 'link', tabindex: '0' },
+    return h('div', { class: 'quote', 'data-href': path(q), 'data-qid': q.id, role: 'link', tabindex: '0' },
       head(q, true),
       q.text ? h('div', { class: 'text' }, rich(q, { plain: true })) : null,
       media(q, true));
@@ -279,8 +293,9 @@
     if (!t) return fallback(row.id, 'This post could not be shown here.');
     if (t.unavailable || t.type !== 'tweet') return fallback(t.id, t.reason);
     try {
-      const long = t.isLongform && !expanded.has(t.id);
-      const node = h('article', { class: 'tweet' + (row.threadNext ? ' thread-next' : '') + (row.threadPrev ? ' thread-prev' : ''), tabindex: '0', 'data-id': t.id, 'data-href': path(t), 'aria-label': `${t.author.name}: ${String(t.text || '').slice(0, 80)}` },
+      const long = t.isLongform && !expanded.has(t.id) && !row.focal;
+      const st = t.stats || {};
+      const node = h('article', { class: 'tweet' + (row.threadNext ? ' thread-next' : '') + (row.threadPrev ? ' thread-prev' : '') + (row.focal ? ' focal' : ''), tabindex: '0', 'data-id': t.id, 'data-href': path(t), 'aria-label': `${t.author.name}: ${String(t.text || '').slice(0, 80)}` },
         t.retweetedBy ? h('div', { class: 'ctx' }, icon('rt'), h('a', { href: '/' + t.retweetedBy.screenName }, `${t.retweetedBy.name || t.retweetedBy.screenName} reposted`)) : null,
         h('a', { class: 'avl', href: '/' + t.author.screenName, tabindex: '-1', 'aria-hidden': 'true' }, avatar(t.author)),
         h('div', { class: 'body' },
@@ -293,6 +308,8 @@
           t.card && t.card.kind === 'poll' ? poll(t.card) : t.card && t.card.kind === 'link' && !(t.media || []).length ? linkCard(t.card) : null,
           note(t.communityNote),
           t.interstitial ? h('div', { class: 'inter' }, t.interstitial) : null,
+          row.focal && t.createdAtMs ? h('div', { class: 'fulldate' }, h('time', { datetime: t.createdAt || '' }, full(t.createdAtMs)),
+            st.views != null ? h('span', null, ' · ', h('b', null, fmt(st.views)), ' Views') : null) : null,
           actions(t)));
       return node;
     } catch (e) {
@@ -368,10 +385,12 @@
     const url = XBB.embedUrl(t.author.screenName || 'i', t.id);
     fast.lastCopy = url;
     const ok = XBB.copyText ? await XBB.copyText(url) : false;
-    if (!ok) { fast.toast('Could not copy the link'); return; }
+    if (!ok) { fast.toast('Could not copy the link'); return false; }
+    if (!btn) { fast.toast('Link copied: ' + url.replace(/^https:\/\//, '')); return true; }
     btn.classList.add('done');
     btn.querySelector('.ic').replaceChildren(icon('check'));
     setTimeout(() => { btn.classList.remove('done'); btn.querySelector('.ic').replaceChildren(icon('copy')); }, 1400);
+    return true;
   }
 
   // Shift+click on Retweet: a small Repost / Quote menu (Popover API: top layer, light dismiss, Esc)
@@ -408,9 +427,20 @@
     const t0 = path0[0] && path0[0].nodeType === 1 ? path0[0] : e.target;
     const btn = t0.closest('[data-act]');
     const art = t0.closest('article.tweet');
+    const mod = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
+    // a photo, a GIF, or a video's expand button: the media lightbox (a modified click on a photo stays a link;
+    // a click on a video's own controls stays the player's)
+    const lbT = t0.closest('[data-lb]');
+    const vidT = t0.closest('video');
+    if (lbT && art && fast.lightbox && !(mod && lbT.tagName === 'A') && !(vidT && vidT.controls)) {
+      e.preventDefault(); e.stopPropagation();
+      fast.lightbox.open(art.dataset.id, +lbT.dataset.lb || 0);
+      return true;
+    }
     if (btn && btn.tagName === 'BUTTON') {
       e.preventDefault(); e.stopPropagation();
-      const id = btn.dataset.id || (art && art.dataset.id);
+      const holder = btn.closest('[data-id]');
+      const id = btn.dataset.id || (art && art.dataset.id) || (holder && holder.dataset.id);
       const k = btn.dataset.act;
       if (k === 'more') {
         expanded.add(id);
@@ -423,15 +453,29 @@
       else if (k === 'rt') { if (e.shiftKey || XBB.settings.quickRetweet === false) rtMenu(btn, id, ctx.root); else toggle('rt', id); }
       else if (k === 'lrt') likeRetweet(id);
       else if (k === 'copy') copyLink(btn, id);
-      else if (k === 'reply') { const t = store.tweet(id); if (t) fast.toNative(path(t)); }
+      else if (k === 'reply') {
+        // Reply on a post: its thread in the drawer. On the post the drawer already shows: X's own composer.
+        const t = store.tweet(id);
+        if (t && fast.drawer && !(art && art.classList.contains('focal'))) fast.drawer.open(id);
+        else if (t) fast.toNative(path(t));
+      }
       return true;
     }
+    // the time is a link to the post: the drawer, unless the user asked for a new tab or window
+    const when = t0.closest('a.when');
+    if (when && art && fast.drawer && !mod) { e.preventDefault(); if (!art.classList.contains('focal')) fast.drawer.open(art.dataset.id); return true; }
     if (t0.closest('a[href], video, button, input, .vc, [popover]')) return false;   // links: the router; players: theirs
     const q = t0.closest('.quote[data-href]');
-    if (q) { e.preventDefault(); fast.toNative(q.dataset.href); return true; }
-    if (art && art.dataset.href && !(getSelection && String(getSelection()).length)) { e.preventDefault(); fast.toNative(art.dataset.href); return true; }
+    if (q) { e.preventDefault(); if (fast.drawer && q.dataset.qid) fast.drawer.open(q.dataset.qid); else fast.toNative(q.dataset.href); return true; }
+    if (art && art.dataset.href && !(getSelection && String(getSelection()).length)) {
+      e.preventDefault();
+      if (art.classList.contains('focal')) return true;
+      if (fast.drawer) fast.drawer.open(art.dataset.id); else fast.toNative(art.dataset.href);
+      return true;
+    }
     return false;
   }
 
-  fast.render = { tweet, attach, release, estimate, click, icon, fmt, rel, rich, toggle, likeRetweet, expanded, revealed, path };
+  fast.render = { tweet, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
+    act, syncActions, avatar, badge, safe, photoSrc, mp4, ratio };
 })();

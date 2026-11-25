@@ -114,7 +114,10 @@
     const list = [];
     for (const v of [...score.keys()]) {
       if (!v.isConnected) { score.delete(v); shadowed.delete(v); if (pick === v) pick = null; if (chosen === v) chosen = null; continue; }
-      if (managed(v)) list.push(v);
+      if (!managed(v)) continue;
+      // an overlay (Fast UI's lightbox or drawer) is up: what is behind it stays quiet
+      if (!inScope(v)) { if (!v.paused && !isPip(v)) quiet(v); if (chosen === v) chosen = null; continue; }
+      list.push(v);
     }
     // gone from the screen: a pause of yours no longer counts, and offscreen videos pause
     for (const v of list) {
@@ -145,6 +148,9 @@
     const targets = s.videoOneAtATime ? (best ? [best] : []) : list.filter(v => sc(v) >= 0.5);
     for (const v of targets) if (v.paused && !v.ended && !userPaused.has(v)) start(v);
   }
+  // Fast UI's overlays: while one is up, only the videos inside it may play (XBB.videoPolicy.scope)
+  let scopeEl = null;
+  const inScope = v => !scopeEl || !scopeEl.isConnected || scopeEl.contains(v);
   let timer = 0;
   function schedule(ms = 120) { clearTimeout(timer); timer = setTimeout(evaluate, ms); }
 
@@ -152,6 +158,7 @@
   const onPlay = e => {
     const v = e.target, s = XBB.settings;
     if (!managed(v)) return;
+    if (!inScope(v)) { quiet(v); return; }   // behind an overlay
     if (away() && !userOn(v)) { quiet(v); return; }   // X restarting something while you are away
     if (userOn(v) || barPlay(v)) {         // you started it: it wins, and everything else yields
       userPaused.delete(v);
@@ -250,7 +257,15 @@
         try { v.load(); } catch {}
       }
     },
-    evaluate: () => schedule(0)
+    evaluate: () => schedule(0),
+    // An element (a lightbox or drawer <dialog>): videos outside it pause and nothing outside it starts, until scope(null)
+    scope(el) {
+      el = el || null;
+      if (scopeEl === el) return;
+      scopeEl = el;
+      if (chosen && !inScope(chosen)) chosen = null;
+      schedule(0);
+    }
   };
   XBB.onDomChange(scan, 200);
   let lastRun = 0;

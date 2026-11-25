@@ -180,9 +180,10 @@
     if (!ring) tapped.set(t.op, ring = []);
     ring.push(t);
     if (ring.length > RING) ring.shift();
-    // X itself now uses another queryId than the one that failed for us: the drift is over, try again
+    // X itself now uses another queryId than the one that failed for us: the drift is over, try again. An op we
+    // had no queryId for at all (missing-op) is learned from this very request: try again too.
     const b = states.get(t.op);
-    if (b && b.state === 'open' && b.queryId && t.queryId && b.queryId !== t.queryId) gql.breaker.reset(t.op);
+    if (b && b.state === 'open' && t.queryId && (b.kind === 'missing-op' ? t.status >= 200 && t.status < 300 : b.queryId && b.queryId !== t.queryId)) gql.breaker.reset(t.op);
     for (const key of [t.op, '*']) {
       const set = subs.get(key);
       if (set) for (const fn of [...set]) { try { fn(t); } catch (err) { console.error('[XBB]', err); } }

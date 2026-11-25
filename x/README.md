@@ -29,9 +29,19 @@ Not carried over from the old optimizer script: timer and animation-frame thrott
 
 Milestone 1 of a faster X UI that reads X's own GraphQL data instead of its DOM. No visible feature yet; the `fastUi` setting (default off) only switches the passive tap on. `main-world-api.js` finds X's current GraphQL query IDs in its webpack chunks at run time (nothing is hardcoded), learns the session headers and live `{queryId, features, fieldToggles}` from X's own requests, and can run an operation for the content script. `content/api.js` is the client (`XBB.gql.call`, `onTap`, `getTapped`) with a per-operation circuit breaker that tells the UI to fall back to native X when X changes an operation. `content/model.js` turns the payloads into flat, defensively normalized records (`XBB.model.normalizeTweet`, `normalizeUser`, `extractTimeline`). Details and rules are in CLAUDE.md.
 
+## Fast UI overlays (1.3.0)
+
+With Fast UI on, nothing on Home navigates away any more:
+
+- **Media lightbox**: a photo, a GIF or a video's expand button opens a full-window viewer: the photo at `name=large` (`orig` once zoomed), a video with its controls (the feed's videos pause behind it), Prev/Next, ←/→, the wheel, a "1 / 4" counter, ALT, click or +/− to zoom, F for fullscreen, and a bar with the author, the text and Like, Retweet, Like + Retweet, Bookmark, Copy link and Open thread.
+- **Thread drawer**: a click on a post (its card, its time, Reply) opens it in a panel on the right (or centred, from the header): the post at once, then its ancestors above and its replies below. Replies and quotes open one level deeper, with Back. The URL becomes the post's, but Home stays under it at the exact scroll position. Before X has ever loaded a post page in this session, replies may say "Open on X once"; one visit teaches the operation.
+- **Keyboard** (setting "Keyboard shortcuts"): `j`/`k` move, `o`/Enter open the thread, `m` the media, `l`/`t`/`b` like, retweet, bookmark, `c` copy the embed link, `/` search, `.` show new posts, Esc closes the lightbox, then the drawer, then the focus.
+
+Back, Esc or a click beside an overlay closes one level.
+
 ## Test
 
-`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. `npm run test:x:api` covers the Fast UI engine in the same way (fake webpack chunks, fake GraphQL backend, payload fixtures). What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
+`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. `npm run test:x:api` covers the Fast UI engine in the same way (fake webpack chunks, fake GraphQL backend, payload fixtures). `npm run test:x:fast` and `npm run test:x:overlay` cover the Fast UI shell, Home and the overlays on a mock x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
 
 ## Firefox
 

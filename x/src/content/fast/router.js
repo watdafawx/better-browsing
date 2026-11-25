@@ -38,6 +38,7 @@
       wasOwned = true;
       setRestore(true);
       shell.applyTheme();
+      fast.ov.refresh();             // an overlay entry (Back/Forward onto it, a reload): lightbox / drawer follow
       XBB.videoPolicy && XBB.videoPolicy.evaluate();
     } catch (e) {
       console.error('[XBB fast]', e);

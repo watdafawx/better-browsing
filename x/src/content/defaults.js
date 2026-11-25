@@ -21,7 +21,7 @@ XBB.DEFAULTS = {
   fastUi: false,
   fastUiTheme: 'auto',        // auto (follows X's own theme) | black (Lights Out) | dim | light
   fastUiNativeButton: true,   // "Native X" button in the Fast UI top bar (Alt+Shift+X works either way)
-  fastUiKeys: true,           // Alt+Shift+X switches between Fast UI and X's own page
+  fastUiKeys: true,           // Fast UI keyboard shortcuts (j/k/o/m/l/t/b/c, /, .) and Alt+Shift+X (Fast UI <-> X's own page)
 
   // Page
   lighterPage: true,          // no backdrop blur

@@ -482,6 +482,47 @@ const errsOf = () => logs.filter(l => l.startsWith('[pageerror]'));
   await ctx.close();
 }
 
+// ---------- 5b. X's 2026 Relay schema ----------
+// What live x.com sent in Nov 2026: home_timeline.home_timeline_urt, snake_case entry_id/sort_index, content.content,
+// cursor_type, tweet_results { id, rest_id, result } (the wrapper carries a rest_id too), details/counts/perspective
+// instead of legacy, media_entities2, url_entities/mention_entities.
+{
+  const { ctx, page } = await open();
+  const R = await page.evaluate(([U]) => {
+    const relayTweet = (id, user, o = {}) => ({ id: 'VHdlZXQ6' + id, rest_id: id, result: { __typename: 'Tweet', rest_id: id,
+      core: { user_results: { result: user } },
+      details: Object.assign({ full_text: o.text || ('relay ' + id), created_at_ms: 1763721000000 + (+id % 1000) * 1000 }, o.details || {}),
+      counts: Object.assign({ reply_count: 1, retweet_count: 2, quote_count: 0, favorite_count: 7, bookmark_count: 4 }, o.counts || {}),
+      perspective: Object.assign({ favorited: false, retweeted: false, bookmarked: false }, o.perspective || {}),
+      views: { count: '321' },
+      url_entities: o.urls || [], mention_entities: o.mentions || [],
+      media_entities2: o.media || [] } });
+    const ent = (eid, idx, content) => ({ entry_id: eid, sort_index: String(idx), content: { __typename: 'TimelineTimelineItem', content } });
+    const tweetItem = t => ({ __typename: 'TimelineTweet', tweet_results: t, display_type: 'Tweet' });
+    const photo = n => ({ type: 'photo', id_str: 'm' + n, media_url_https: `https://pbs.twimg.com/media/R${n}.jpg`, original_info: { width: 1000, height: 750 }, ext_alt_text: 'relay cat ' + n });
+    const data = { data: { home_timeline: { home_timeline_urt: { instructions: [{ __typename: 'TimelineAddEntries', entries: [
+      ent('tweet-8001', 9, tweetItem(relayTweet('8001', U.alice, { text: 'relay &amp; hello https://t.co/r1', urls: [{ url: 'https://t.co/r1', expanded_url: 'https://example.test/r', display_url: 'example.test/r', indices: [15, 35] }],
+        perspective: { favorited: true, bookmarked: true }, media: [photo(1), photo(2)] }))),
+      ent('tweet-8002', 8, tweetItem(relayTweet('8002', U.alice, { mentions: [{ id_str: '200', screen_name: 'bob', name: 'Bob', indices: [0, 4] }], text: '@bob relay reply' }))),
+      { entry_id: 'promoted-tweet-8009', sort_index: '7', content: { __typename: 'TimelineTimelineItem', content: { __typename: 'TimelineTweet', tweet_results: relayTweet('8009', U.alice), promoted_metadata: { advertiser: 'x' } } } },
+      { entry_id: 'cursor-top-1', sort_index: '10', content: { __typename: 'TimelineTimelineCursor', value: 'RTOP', cursor_type: 'Top' } },
+      { entry_id: 'cursor-bottom-1', sort_index: '1', content: { __typename: 'TimelineTimelineCursor', value: 'RBOT', cursor_type: 'Bottom' } }
+    ] }] } } } };
+    const tl = XBB.model.extractTimeline(data);
+    const one = XBB.model.normalizeTweet(relayTweet('8003', U.alice));
+    return { tl, one };
+  }, [U]);
+  const ids = R.tl.items.map(i => i.tweet.id).join();
+  check('relay: home_timeline_urt entries (entry_id, content.content) come out in order, the ad is skipped', ids === '8001,8002' && R.tl.skippedPromoted === 1 && R.tl.items[0].entryId === 'tweet-8001' && R.tl.items[0].sortIndex === '9', { ids, sk: R.tl.skippedPromoted, e: R.tl.items[0]?.entryId });
+  check('relay: cursor_type cursors', R.tl.cursors.top === 'RTOP' && R.tl.cursors.bottom === 'RBOT', R.tl.cursors);
+  const a = R.tl.items[0]?.tweet || {};
+  check('relay: tweet_results { id, rest_id, result } is unwrapped to the result (author, details text, created_at_ms)', a.id === '8001' && a.author?.screenName === 'alice' && a.text.startsWith('relay & hello') && a.createdAtMs === 1763721001000 && a.url === 'https://x.com/alice/status/8001', a);
+  check('relay: counts, views and perspective', a.stats?.likes === 7 && a.stats.retweets === 2 && a.stats.replies === 1 && a.stats.bookmarks === 4 && a.stats.views === 321 && a.viewer?.liked === true && a.viewer.bookmarked === true && a.viewer.retweeted === false, { s: a.stats, v: a.viewer });
+  check('relay: media_entities2 photos with alt text, url_entities and mention_entities', a.media?.length === 2 && a.media[0].type === 'photo' && a.media[0].url.endsWith('R1.jpg') && a.media[1].alt === 'relay cat 2' && a.entities.urls[0].expandedUrl === 'https://example.test/r' && R.tl.items[1]?.tweet.entities.mentions[0].screenName === 'bob', { m: a.media, e: a.entities });
+  check('relay: a bare tweet_results wrapper normalizes too', R.one?.id === '8003' && R.one.text === 'relay 8003' && R.one.stats.likes === 7, R.one);
+  await ctx.close();
+}
+
 // ---------- 6. Violentmonkey-style content realm with a nonce CSP ----------
 // The page hooks arrive as an injected <script> with the page's nonce (window.wrappedJSObject marks that realm). The bridge
 // must work through it, and without a nonce to borrow the API must say so quickly instead of hanging.
