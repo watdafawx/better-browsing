@@ -94,7 +94,7 @@
     const s = res.status | 0;
     if (s === 401) return 'auth';
     if (s === 429) return 'rate-limit';
-    if (s === 400 || s === 403 || s === 404) return 'drift';
+    if (s === 400 || s === 403 || s === 404 || s === 422) return 'drift';
     if (s >= 500) return 'server';
     if (s >= 200 && s < 300) {
       // 200 with errors and nothing else: a rejected query (renamed field, unknown feature flag), or just "no such user"

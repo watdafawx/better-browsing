@@ -65,11 +65,16 @@
     let o = ops[name];
     if (!o) {
       o = ops[name] = { operationName: name, queryId: '', rank: 0, operationType: '', liveMethod: '',
-        featureSwitches: [], fieldToggleNames: [], namesRank: 0, features: null, fieldToggles: null };
+        liveVars: null, featureSwitches: [], fieldToggleNames: [], namesRank: 0, features: null, fieldToggles: null };
     }
     if (p.queryId && VALID_ID.test(p.queryId) && (rank >= o.rank || !o.queryId)) { o.queryId = p.queryId; o.rank = rank; }
     if (/^(query|mutation|subscription)$/.test(p.operationType || '')) o.operationType = p.operationType;
     if (p.liveMethod) o.liveMethod = p.liveMethod;
+    if (isObj(p.liveVars) && !Array.isArray(p.liveVars)) {
+      const lv = Object.assign({}, p.liveVars);
+      delete lv.cursor; delete lv.seenTweetIds; delete lv.requestContext;
+      o.liveVars = lv;
+    }
     const fs = strList(p.featureSwitches), ft = strList(p.fieldToggleNames);
     if ((fs.length || ft.length) && (rank >= o.namesRank || !(o.featureSwitches.length || o.fieldToggleNames.length))) {
       o.featureSwitches = fs; o.fieldToggleNames = ft; o.namesRank = rank;
@@ -88,7 +93,7 @@
         for (const k of Object.keys(ops)) {
           const o = ops[k];
           if (!o.queryId) continue;
-          out[k] = { queryId: o.queryId, operationType: o.operationType, liveMethod: o.liveMethod, featureSwitches: o.featureSwitches,
+          out[k] = { queryId: o.queryId, operationType: o.operationType, liveMethod: o.liveMethod, liveVars: o.liveVars, featureSwitches: o.featureSwitches,
             fieldToggleNames: o.fieldToggleNames, features: o.features, fieldToggles: o.fieldToggles };
         }
         localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, t: Date.now(), base: gqlBase, auth: session.authorization || '', ops: out, fv: featureValues }));
@@ -105,7 +110,7 @@
       if (typeof c.auth === 'string' && c.auth) session.authorization = c.auth;
       for (const k of Object.keys(c.ops)) {
         const e = c.ops[k];
-        if (isObj(e)) learn(k, { queryId: e.queryId, operationType: e.operationType, liveMethod: e.liveMethod, featureSwitches: e.featureSwitches,
+        if (isObj(e)) learn(k, { queryId: e.queryId, operationType: e.operationType, liveMethod: e.liveMethod, liveVars: e.liveVars, featureSwitches: e.featureSwitches,
           fieldToggleNames: e.fieldToggleNames, features: boolMap(e.features), fieldToggles: boolMap(e.fieldToggles) }, 'cache');
       }
       if (isObj(c.fv)) for (const k of Object.keys(c.fv)) if (typeof c.fv[k] === 'boolean') featureValues[k] = c.fv[k];
@@ -307,7 +312,7 @@
         vars = j('variables'); feats = j('features'); toggles = j('fieldToggles');
       }
     } catch {}
-    learn(m[2], { queryId: m[1], liveMethod: method, features: boolMap(feats), fieldToggles: boolMap(toggles) }, 'live');
+    learn(m[2], { queryId: m[1], liveMethod: method, liveVars: vars, features: boolMap(feats), fieldToggles: boolMap(toggles) }, 'live');
     return { op: m[2], queryId: m[1], variables: vars, tap: TAP_OPS.has(m[2]) && tapOn() };
   }
 
@@ -445,7 +450,11 @@
     if (!session.authorization || !csrf) return { ok: false, status: 0, error: 'no-auth', queryId: o.queryId };
 
     const method = String(req.method || (o.operationType === 'mutation' ? 'POST' : o.liveMethod) || 'GET').toUpperCase();
-    const variables = isObj(req.variables) ? req.variables : {};
+    let variables;
+    if (o.liveVars) {
+      variables = Object.assign({}, o.liveVars);
+      if (isObj(req.variables)) for (const k of Object.keys(req.variables)) if (k in variables || k === 'cursor' || k === 'count') variables[k] = req.variables[k];
+    } else variables = isObj(req.variables) ? req.variables : {};
     const features = boolMap(req.features) || buildFeatures(o);
     const toggles = boolMap(req.fieldToggles) || buildToggles(o);
     const hasToggles = Object.keys(toggles).length > 0;
