@@ -42,16 +42,17 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     }
     * { box-sizing: border-box; }
     .panel {
-      width: min(520px, calc(100vw - 24px)); max-height: 84vh;
+      width: min(860px, calc(100vw - 32px)); max-height: 84vh;
       border-radius: 16px; border: 1px solid var(--line); background: var(--bg); color: var(--text);
       box-shadow: 0 24px 64px rgba(0, 0, 0, .48); overflow: hidden;
       font: 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
       -webkit-font-smoothing: antialiased;
     }
-    .panel > div { display: flex; flex-direction: column; max-height: 84vh; min-height: 0; background: var(--bg); color: var(--text); }
+    .panel:has(#tabs) { width: min(640px, calc(100vw - 32px)); }
+    .panel > div { width: 100% !important; display: flex; flex-direction: column; max-height: 84vh; min-height: 0; background: var(--bg); color: var(--text); }
     header {
       flex: none; display: flex; align-items: center; gap: 10px;
-      padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--bg);
+      padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--bg);
     }
     header img { width: 22px; height: 22px; border-radius: 6px; flex: none; }
     h1 { font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; margin: 0; flex: 1; color: var(--text); }
@@ -68,7 +69,7 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     }
     .x:hover { background: var(--field); color: var(--text); }
     nav#tabs {
-      flex: none; display: flex; gap: 4px; padding: 8px 14px;
+      flex: none; display: flex; gap: 4px; padding: 8px 16px;
       border-bottom: 1px solid var(--line); background: var(--bg); overflow-x: auto;
     }
     nav#tabs button {
@@ -79,12 +80,19 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     nav#tabs button:hover { background: var(--field); color: var(--text); }
     nav#tabs button.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border: 0; }
     main {
-      flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px;
+      flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 20px;
       scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+    }
+    @media (min-width: 720px) {
+      main:not(:has([data-panel])) {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px; align-items: start;
+      }
+      main:not(:has([data-panel])) > section { margin-bottom: 0; }
     }
     section:not([data-panel]) {
       background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-      padding: 13px 16px; margin: 0 0 12px;
+      padding: 14px 16px; margin: 0 0 12px;
     }
     section:not([data-panel]):last-child { margin-bottom: 0; }
     section[data-panel] { padding: 2px 2px 4px; border: 0; }
@@ -96,16 +104,17 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     section[data-panel] h2:first-child { margin-top: 0; }
     .row {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      margin: 0; padding: 7px 0; color: var(--text);
+      margin: 0; padding: 8px 0; color: var(--text);
     }
     .row span { display: flex; align-items: center; gap: 8px; flex: none; }
     .check {
-      display: flex; flex-direction: row-reverse; align-items: center; justify-content: space-between;
-      gap: 14px; margin: 0; padding: 7px 0; cursor: pointer; color: var(--text);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; margin: 0; padding: 8px 0; cursor: pointer; color: var(--text);
     }
+    .check .lbl { flex: 1; min-width: 0; line-height: 1.4; }
     .check + .check, .row + .check, .check + .row, .row + .row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
     .check input[type=checkbox] {
-      -webkit-appearance: none; appearance: none; flex: none; margin: 0;
+      order: 2; -webkit-appearance: none; appearance: none; flex: none; margin: 0;
       width: 36px; height: 20px; border-radius: 999px;
       background: var(--field); border: 1px solid var(--line);
       position: relative; cursor: pointer; transition: background .16s ease, border-color .16s ease;
@@ -171,6 +180,15 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(8,10,16,.58);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding-top:7vh';
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${css}\n${MODERN_CSS}</style><div class="panel"><div>${html}</div></div>`;
+    // wrap label text/inline <kbd> inside .check in one span so flex keeps natural inline flow + toggle on the right
+    for (const label of root.querySelectorAll('label.check')) {
+      const inp = label.querySelector('input[type=checkbox]');
+      if (!inp) continue;
+      const span = document.createElement('span');
+      span.className = 'lbl';
+      for (const n of [...label.childNodes]) if (n !== inp) span.append(n);
+      label.append(span);
+    }
     const x = document.createElement('button');
     x.className = 'x'; x.title = 'Close (Esc)'; x.setAttribute('aria-label', 'Close'); x.textContent = '✕'; x.onclick = toggle;
     root.querySelector('header').append(x);
