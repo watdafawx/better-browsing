@@ -68,6 +68,7 @@
       stats.promoted += f.promoted; stats.dropped += f.dropped; stats.pages++;
       if (source) stats.source = stats.source || source;
       const fresh = f.pins.filter(p => !seen.has(p.id) && seen.add(p.id));
+      PIN.ext && PIN.ext.log('info', '[PIN home] take', { source, raw: Array.isArray(data) ? data.length : -1, fresh: fresh.length, promoted: f.promoted, dropped: f.dropped, bm: (bm || '').slice(0, 24), attr: root.getAttribute('data-pin-fast') });
       fast.viewer.know(fresh);
       bookmark = bm || '';
       ended = !bookmark || bookmark === '-end-';
@@ -93,6 +94,7 @@
       loading = false;
       if (first) return;                  // a tapped page came in meanwhile
       if (r.ok) { setStatus('idle'); take(r.data, r.bookmark, 'call'); return; }
+      PIN.ext && PIN.ext.log('warn', '[PIN home] load failed', { kind: r.kind, status: r.status, err: r.error || '' });
       if (r.kind === 'http' && r.status === 401) { fast.fail('home', 'signed-out', true); return; }
       if (r.kind === 'breaker' || r.kind === 'failure' || r.kind === 'schema') return;     // flag.js hands Home back
       fast.fail('home', 'first page: ' + r.kind + (r.status ? ' ' + r.status : ''), false);

@@ -53,7 +53,8 @@
     try {
       if (!obj(p)) return false;
       if (p.is_promoted === true || p.is_ad === true) return true;
-      if (p.promoted_is_removable != null || p.ad_match_reason != null) return true;
+      if (p.promoted_is_removable === true) return true;
+      if ((typeof p.ad_match_reason === 'number' && p.ad_match_reason > 0) || (typeof p.ad_match_reason === 'string' && p.ad_match_reason && p.ad_match_reason !== '0')) return true;
       if (obj(p.promoter) || (typeof p.promoter === 'string' && p.promoter)) return true;
       if (obj(p.sponsorship) || p.sponsorship === true) return true;
       const label = str(p.grid_title_label) + ' ' + str(get(p, 'attribution', 'title')) + ' ' + str(p.promoted_label);

@@ -65,6 +65,7 @@
     fast.api && fast.api.tap(s.on && !s.escaped);
     const changed = !state || state.on !== s.on || state.route !== s.route || state.owned !== s.owned || state.escaped !== s.escaped;
     state = s;
+    PIN.ext && PIN.ext.log('info', '[PIN flag] state', { on: s.on, route: s.route, owned: s.owned, escaped: s.escaped, broken: s.broken, attr: root.getAttribute(ATTR), host: !!document.querySelector('pin-fast') });
     if (changed) for (const fn of [...listeners]) { try { fn(s); } catch (e) { console.error('[PIN fast]', e); } }
     ovWas = !!(s.owned && ovState());
     syncEntry();

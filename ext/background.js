@@ -137,6 +137,14 @@
   if (DEV) {
     let reloading = false;
     const patterns = SITES.flatMap(s => s.patterns);
+    // If the previous worker triggered a hot reload, refresh active covered tabs now that the NEW build is live
+    api.storage.local.get('bb:devReloadTabs').then(async r => {
+      if (!r || !r['bb:devReloadTabs']) return;
+      await api.storage.local.remove('bb:devReloadTabs');
+      try {
+        for (const t of await api.tabs.query({ active: true, url: patterns })) if (t.id != null) api.tabs.reload(t.id).catch(() => {});
+      } catch {}
+    }).catch(() => {});
     const checkReload = async () => {
       if (reloading) return;
       try {
@@ -146,10 +154,8 @@
         if (j && j.id && String(j.id) !== String(BUILD_ID)) {
           reloading = true;
           devLog('info', ['Hot reload triggered:', BUILD_ID, '->', j.id]);
-          try {
-            for (const t of await api.tabs.query({ active: true, url: patterns })) if (t.id != null) api.tabs.reload(t.id).catch(() => {});
-          } catch {}
-          setTimeout(() => { try { api.runtime.reload(); } catch {} }, 120);
+          try { await api.storage.local.set({ 'bb:devReloadTabs': 1 }); } catch {}
+          try { api.runtime.reload(); } catch {}
         }
       } catch {}
     };
