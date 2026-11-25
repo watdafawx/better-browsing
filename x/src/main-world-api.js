@@ -29,7 +29,7 @@
   const isApiUrl = u => u.indexOf('/i/api/') !== -1 || u.indexOf('/graphql/') !== -1;
   const VALID_ID = /^[\w-]{8,64}$/;
   const TAP_OPS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'TweetDetail', 'UserByScreenName', 'UserTweets',
-    'UserTweetsAndReplies', 'UserMedia', 'UserOriginalsTimeline', 'Likes', 'Bookmarks', 'SearchTimeline',
+    'UserTweetsAndReplies', 'UserMedia', 'UserOriginalsTimeline', 'Likes', 'Bookmarks', 'SearchByRawQuery', 'SearchTimeline',
     'NotificationsTimeline', 'fetchNotificationBadgeCountsQuery']);
   // X's own REST calls whose answers Fast UI can reuse (the unread badge X polls, its notification and DM lists):
   // tapped under these names, same rules as the GraphQL ones (only while <html data-xbb-api-tap>)

@@ -346,7 +346,7 @@
     const TABS = {};
     for (const k of ['top', 'latest', 'people', 'media']) TABS[k] = {
       label: k === 'top' ? 'Top' : k === 'latest' ? 'Latest' : k === 'people' ? 'People' : 'Media',
-      learn: 'Search', ops: ['SearchTimeline'], users: k === 'people',
+      learn: 'Search', ops: ['SearchByRawQuery', 'SearchTimeline'], users: k === 'people',
       vars: () => q ? { rawQuery: q, count: 20, querySource: 'typed_query', product: PRODUCT[k] } : null,
       match: v => String(v.rawQuery || '').trim() === q && String(v.product || 'Top') === PRODUCT[k],
       list: () => `search:${k}:${q}`,
