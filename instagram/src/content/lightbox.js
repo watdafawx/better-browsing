@@ -16,17 +16,37 @@
     const vid = biggest(m.video_versions)?.url;
     return vid ? { type: 'video', src: vid, poster: img } : { type: 'image', src: img };
   };
+  const normComment = c => ({
+    id: String(c.pk || ''),
+    user: c.user?.username || '',
+    text: c.text || '',
+    likes: c.comment_like_count || 0,
+    created: c.created_at_utc || c.created_at || 0,
+    replyCount: c.child_comment_count || 0
+  });
   function normalize(it) {
     if (!it) throw new Error('no media in response');
     return {
+      pk: String(it.pk || ''),
       code: it.code || String(it.pk || ''),
       user: it.user?.username || '',
       caption: it.caption?.text || '',
       likes: it.like_count, comments: it.comment_count,
       taken: it.taken_at || 0,
+      previewComments: Array.isArray(it.preview_comments) ? it.preview_comments.map(normComment).filter(c => c.text) : [],
       items: (it.carousel_media?.length ? it.carousel_media : [it]).map(one)
     };
   }
+  const commentCache = new Map();
+  const relTime = sec => {
+    if (!sec) return '';
+    const d = Math.max(1, Math.floor(Date.now() / 1000 - sec));
+    if (d < 60) return d + 's';
+    if (d < 3600) return Math.floor(d / 60) + 'm';
+    if (d < 86400) return Math.floor(d / 3600) + 'h';
+    if (d < 604800) return Math.floor(d / 86400) + 'd';
+    return Math.floor(d / 604800) + 'w';
+  };
   // One request per post, cached for the page. Failures are not cached.
   // Posts are addressed by shortcode; stories by their numeric id (it's in the story URL).
   const cache = new Map();
@@ -100,7 +120,9 @@
     render();
   }
 
+  let commentTimer = 0;
   function close(fromPop) {
+    clearTimeout(commentTimer);
     if (!lb) return;
     const { el, pushed } = lb;
     lb = null;
@@ -162,15 +184,109 @@
     prefetch();
   }
 
-  function drawBar(entry, d) {
+  function renderCommentNode(d, c, isReply) {
     const s = IGB.settings;
+    const body = s.captionLinks && IGB.linkify ? IGB.linkify(c.text) : c.text;
+    const repliesBox = !isReply && c.replyCount > 0 ? h('div', { class: 'igb-lb-replies' }) : null;
+    let replyBtn = null;
+    if (repliesBox) {
+      replyBtn = h('button', {
+        class: 'igb-lb-more', type: 'button',
+        onclick: async () => {
+          replyBtn.disabled = true; replyBtn.textContent = 'Loading replies…';
+          try {
+            const j = await IGB.getJSON(`/api/v1/media/${d.pk}/comments/${c.id}/child_comments/?max_id=`);
+            const list = (j.child_comments || []).map(normComment).filter(x => x.text);
+            repliesBox.replaceChildren(...list.map(r => renderCommentNode(d, r, true)));
+            replyBtn.remove();
+          } catch {
+            replyBtn.disabled = false; replyBtn.textContent = `View ${c.replyCount} ${c.replyCount === 1 ? 'reply' : 'replies'} (retry)`;
+          }
+        }
+      }, `View ${c.replyCount} ${c.replyCount === 1 ? 'reply' : 'replies'}`);
+    }
+    return h('div', { class: 'igb-lb-c' + (isReply ? ' reply' : '') },
+      h('div', { class: 'igb-lb-c-body' },
+        c.user ? h('a', { class: 'igb-lb-c-user', href: `/${c.user}/` }, c.user) : '',
+        ' ', body),
+      h('div', { class: 'igb-lb-c-meta' },
+        c.created ? h('span', null, relTime(c.created)) : '',
+        c.likes > 0 ? h('span', null, '♥ ' + c.likes.toLocaleString()) : '',
+        replyBtn),
+      repliesBox);
+  }
+
+  function paintComments(box, d) {
+    const st = commentCache.get(d.pk);
+    const list = st?.list?.length ? st.list : d.previewComments;
+    const kids = [];
+    if (list.length) {
+      for (const c of list) kids.push(renderCommentNode(d, c, false));
+    } else if (st?.loading) {
+      kids.push(h('div', { class: 'igb-lb-c-empty' }, 'Loading comments…'));
+    } else if (st?.err) {
+      kids.push(h('div', { class: 'igb-lb-c-empty' }, 'Could not load comments. ',
+        h('button', { class: 'igb-lb-more', type: 'button', onclick: () => loadComments(d, box, false) }, 'Retry')));
+    } else if (d.comments === 0 || (st && st.done)) {
+      kids.push(h('div', { class: 'igb-lb-c-empty' }, 'No comments yet.'));
+    }
+    if (st?.next && !st.loading) {
+      kids.push(h('button', { class: 'igb-lb-more', type: 'button', onclick: () => loadComments(d, box, true) }, 'Load more comments'));
+    } else if (st?.loading && list.length) {
+      kids.push(h('div', { class: 'igb-lb-c-empty' }, 'Loading…'));
+    }
+    box.replaceChildren(...kids);
+  }
+
+  async function loadComments(d, box, more) {
+    if (!d?.pk) return;
+    let st = commentCache.get(d.pk);
+    if (!st) { st = { list: [], next: null, done: false, loading: false, err: false }; commentCache.set(d.pk, st); }
+    if (st.loading || (more && !st.next) || (!more && st.done)) return;
+    st.loading = true; st.err = false;
+    if (box.isConnected) paintComments(box, d);
+    try {
+      const q = more && st.next ? `&min_id=${encodeURIComponent(st.next)}` : '';
+      const j = await IGB.getJSON(`/api/v1/media/${d.pk}/comments/?can_support_threading=true&permalink_enabled=false${q}`);
+      const seen = new Set(st.list.map(c => c.id));
+      for (const raw of (j.comments || [])) {
+        const c = normComment(raw);
+        if (c.text && (!c.id || !seen.has(c.id))) { seen.add(c.id); st.list.push(c); }
+      }
+      st.next = j.next_min_id || null;
+      st.done = !st.next;
+    } catch {
+      st.err = true;
+      if (!st.list.length) commentCache.delete(d.pk);
+    } finally {
+      st.loading = false;
+      if (lb && lb.list[lb.pi]?.data?.pk === d.pk && box.isConnected) paintComments(box, d);
+    }
+  }
+
+  function drawBar(entry, d) {
+    clearTimeout(commentTimer);
+    const s = IGB.settings;
+    const cbox = d ? h('div', { class: 'igb-lb-comments' }) : null;
+    if (cbox) {
+      paintComments(cbox, d);
+      const st = commentCache.get(d.pk);
+      if (d.pk && d.comments !== 0 && (!st || (!st.done && !st.loading && !st.list.length))) {
+        const wantPk = d.pk;
+        commentTimer = setTimeout(() => {
+          if (lb && lb.list[lb.pi]?.data?.pk === wantPk && cbox.isConnected) loadComments(d, cbox, false);
+        }, 350);
+      }
+    }
     lb.bar.replaceChildren(
       h('div', { class: 'igb-lb-head' },
         d?.user ? h('a', { class: 'igb-lb-user', href: `/${d.user}/` }, d.user) : h('span', { class: 'igb-lb-user' }, '…'),
         d?.taken ? h('span', { class: 'igb-lb-when' }, new Date(d.taken * 1000).toLocaleDateString()) : ''),
-      d && s.lightboxCaption && d.caption
-        ? h('div', { class: 'igb-lb-cap' }, s.captionLinks && IGB.linkify ? IGB.linkify(d.caption) : d.caption)
-        : h('div', { class: 'igb-lb-cap' }),
+      h('div', { class: 'igb-lb-scroll' },
+        d && s.lightboxCaption && d.caption
+          ? h('div', { class: 'igb-lb-cap' }, s.captionLinks && IGB.linkify ? IGB.linkify(d.caption) : d.caption)
+          : null,
+        cbox),
       h('div', { class: 'igb-lb-meta' },
         d?.likes != null ? h('span', null, '♥ ' + d.likes.toLocaleString()) : '',
         d?.comments != null ? h('span', null, d.comments.toLocaleString() + ' comments') : '',
