@@ -120,6 +120,7 @@ function build() {
 
   // reddit/hls.js: the same UMD shim the userscript wraps it in (the local exports/module/define make it set globalThis.Hls)
   write('reddit/hls.js', `(function () { var exports, module, define;\n${hlsSource()}\n}).call(globalThis);\n`);
+  write('reddit/redgifs.js', read('ext/redgifs-ifr.js'));
 
   const table = JSON.stringify(siteTable());
   write('background.js', fill(read('ext/background.js'), '').replace(/__BB_SITES__/g, table));
@@ -129,16 +130,19 @@ function build() {
   for (const n of [16, 32, 48, 128]) copy(`ext/icons/icon${n}.png`, `icons/icon${n}.png`);
 
   const base = JSON.parse(read('ext/manifest.base.json'));
-  const content_scripts = KEYS.flatMap(k => {
-    const s = SITES[k];
-    const common = { matches: s.match, run_at: 'document_start' };
-    const exclude = [...s.exclude, ...(EXT[k].exclude || [])];
-    if (exclude.length) common.exclude_matches = exclude;
-    return [
-      { ...common, js: [`${k}/main.js`], world: 'MAIN' },
-      { ...common, js: [`${k}/content.js`], css: [`${k}/content.css`] }
-    ];
-  });
+  const content_scripts = [
+    ...KEYS.flatMap(k => {
+      const s = SITES[k];
+      const common = { matches: s.match, run_at: 'document_start' };
+      const exclude = [...s.exclude, ...(EXT[k].exclude || [])];
+      if (exclude.length) common.exclude_matches = exclude;
+      return [
+        { ...common, js: [`${k}/main.js`], world: 'MAIN' },
+        { ...common, js: [`${k}/content.js`], css: [`${k}/content.css`] }
+      ];
+    }),
+    { matches: ['https://*.redgifs.com/ifr/*'], all_frames: true, run_at: 'document_start', js: ['reddit/redgifs.js'] }
+  ];
   const host_permissions = [...new Set([...KEYS.flatMap(k => SITES[k].match), 'https://api.x.com/*', 'https://abs.twimg.com/*', 'https://s.pinimg.com/*'])];
   if (DEV) host_permissions.push('http://127.0.0.1:47910/*');
   const manifest = {
