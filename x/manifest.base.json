@@ -1,11 +1,12 @@
 {
   "name": "X Better Browsing",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "description": "X part of the userscript. This file lists the scripts build.js puts into dist/better-browsing.user.js, in load order, and holds the X part's version.",
   "content_scripts": [
     {
       "js": [
-        "main-world.js"
+        "main-world.js",
+        "main-world-api.js"
       ],
       "world": "MAIN"
     },
@@ -13,6 +14,8 @@
       "js": [
         "content/defaults.js",
         "content/core.js",
+        "content/model.js",
+        "content/api.js",
         "content/video.js",
         "content/tweet.js",
         "content/settings.js"
