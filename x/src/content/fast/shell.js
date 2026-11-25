@@ -229,7 +229,7 @@
     async function hcFetch(handle) {
       const key = handle.toLowerCase();
       if (hcPending.has(key)) return hcPending.get(key);
-      const p = XBB.gql.call('UserByScreenName', { screen_name: handle, withGrokTranslatedBio: false })
+      const p = XBB.gql.call('UserByScreenName', { screen_name: handle, screenName: handle, withGrokTranslatedBio: false })
         .then(r => {
           if (r && r.ok) {
             const u = XBB.model.extractUser(r.data);

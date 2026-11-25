@@ -15,11 +15,11 @@
   const SUFFIX = { posts: '', replies: '/with_replies', media: '/media' };
   const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-  const userVars = (op, uid) => op === 'UserMedia'
-    ? { userId: uid, count: 20, includePromotedContent: false, withClientEventToken: false, withBirdwatchNotes: false, withVoice: true }
+  const userVars = (op, uid, sn) => op === 'UserMedia'
+    ? { userId: uid, screenName: sn, count: 20, includePromotedContent: false, withClientEventToken: false, withBirdwatchNotes: false, withVoice: true }
     : op === 'UserTweetsAndReplies'
-      ? { userId: uid, count: 20, includePromotedContent: true, withCommunity: true, withVoice: true }
-      : { userId: uid, count: 20, includePromotedContent: true, withQuickPromoteEligibilityTweetFields: true, withVoice: true };
+      ? { userId: uid, screenName: sn, count: 20, includePromotedContent: true, withCommunity: true, withVoice: true }
+      : { userId: uid, screenName: sn, count: 20, includePromotedContent: true, withQuickPromoteEligibilityTweetFields: true, withVoice: true };
 
   fast.views = fast.views || {};
   fast.views.profile = function profile(shell, ctx) {
@@ -46,7 +46,7 @@
       titleName.textContent = u.name || '@' + sn;
       titleSub.textContent = u.tweetsCount ? `${render.fmt(u.tweetsCount)} posts` : '';
       const kids = [];
-      const banner = render.safe(u.banner ? u.banner + '/1500x500' : '');
+      const banner = render.safe(u.banner ? (/\/\d+x\d+$/.test(u.banner) ? u.banner : u.banner + '/1500x500') : '');
       kids.push(h('div', { class: 'pf-banner' }, banner ? h('img', { src: banner, alt: '', decoding: 'async' }) : null));
       const me = fast.me();
       const mine = !!(user && ((me.id && me.id === user.id) || (me.screenName && me.screenName.toLowerCase() === sn.toLowerCase())));
@@ -94,8 +94,8 @@
       media: { label: 'Media', learn: 'Media', ops: ['UserMedia'] }
     };
     for (const k in TABS) Object.assign(TABS[k], {
-      vars: () => uid() && uState === 'ok' ? userVars(TABS[k].ops[TABS[k].ops.length - 1], uid()) : null,
-      match: v => String(v.userId || '') === uid(),
+      vars: () => uid() && uState === 'ok' ? userVars(TABS[k].ops[TABS[k].ops.length - 1], uid(), sn) : null,
+      match: v => (v.userId && String(v.userId) === uid()) || (v.screenName && String(v.screenName).toLowerCase() === sn.toLowerCase()),
       list: () => `profile:${uid() || sn.toLowerCase()}:${k}`,
       native: () => '/' + sn + SUFFIX[k]
     });
@@ -127,12 +127,12 @@
       feed.kick();
       return true;
     }
-    const tapMatch = t => t && t.status >= 200 && t.status < 300 && t.data && String((t.variables && t.variables.screen_name) || '').toLowerCase() === sn.toLowerCase();
+    const tapMatch = t => t && t.status >= 200 && t.status < 300 && t.data && String((t.variables && (t.variables.screenName || t.variables.screen_name)) || '').toLowerCase() === sn.toLowerCase();
     function onTap(t) { if (tapMatch(t) && (uState === 'loading' || (user && user.stale))) take(XBB.model.extractUser(t.data), 'tap'); }
     const offTap = XBB.gql.onTap('UserByScreenName', onTap);
     async function request() {
       fast.extraRequests = (fast.extraRequests || 0) + 1;
-      const r = await XBB.gql.call('UserByScreenName', { screen_name: sn, withGrokTranslatedBio: false });
+      const r = await XBB.gql.call('UserByScreenName', { screen_name: sn, screenName: sn, withGrokTranslatedBio: false });
       if (dead) return;
       if (r.ok) { take(XBB.model.extractUser(r.data), 'call'); return; }
       if (user && user.stale) return;      // keep what we had
