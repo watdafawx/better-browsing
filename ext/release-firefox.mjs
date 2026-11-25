@@ -66,8 +66,11 @@ try {
 
   fs.mkdirSync('dist', { recursive: true });
   const xpiName = `better-browsing-${version}-firefox.xpi`;
+  const latestName = 'better-browsing-latest-firefox.xpi';
   const xpiOut = path.join('dist', xpiName);
+  const latestOut = path.join('dist', latestName);
   fs.copyFileSync(path.join(artDir, xpis[0]), xpiOut);
+  fs.copyFileSync(path.join(artDir, xpis[0]), latestOut);
 
   console.log(`3/4 writing dist/updates.json for ${addonId} v${version} ...`);
   const updates = {
@@ -102,7 +105,7 @@ try {
     if (cr.status !== 0) fail('gh release create failed.');
   }
   // Upload .xpi BEFORE updates.json so Firefox never sees a version whose .xpi isn't live yet
-  const u1 = spawnSync('gh', ['release', 'upload', TAG, '--repo', REPO, xpiOut, '--clobber'], { stdio: 'inherit' });
+  const u1 = spawnSync('gh', ['release', 'upload', TAG, '--repo', REPO, xpiOut, latestOut, '--clobber'], { stdio: 'inherit' });
   if (u1.status !== 0) fail('gh release upload failed for .xpi.');
   const u2 = spawnSync('gh', ['release', 'upload', TAG, '--repo', REPO, updatesOut, '--clobber'], { stdio: 'inherit' });
   if (u2.status !== 0) fail('gh release upload failed for updates.json.');

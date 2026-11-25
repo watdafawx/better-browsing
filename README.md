@@ -7,6 +7,10 @@ controls with sound at your volume, a fast viewer, and small fixes to each site.
 
 <p align="center">
 
+[![Add to Firefox (All 4 Sites)](https://img.shields.io/badge/Add%20to%20Firefox-All%204%20Sites%20(Extension)-FF7139?style=for-the-badge&logo=firefox&logoColor=white)](https://github.com/watdafawx/better-browsing/releases/download/extension/better-browsing-latest-firefox.xpi)
+
+<br>
+
 [![Install Better Browsing for Reddit](https://img.shields.io/badge/Install-Reddit-FF4500?style=for-the-badge&logo=reddit&logoColor=white)](https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-reddit.user.js)
 [![Install Better Browsing for Instagram](https://img.shields.io/badge/Install-Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white)](https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-instagram.user.js)
 [![Install Better Browsing for X](https://img.shields.io/badge/Install-X-000000?style=for-the-badge&logo=x&logoColor=white)](https://github.com/watdafawx/better-browsing/releases/download/userscript/better-browsing-x.user.js)
@@ -22,6 +26,12 @@ controls with sound at your volume, a fast viewer, and small fixes to each site.
 - [License](#license)
 
 ## Install
+
+### Firefox extension (recommended on Firefox — all 4 sites, auto-updating)
+
+Click **Add to Firefox** above and confirm the install prompt. After installing, open `about:addons` → **Better Browsing** → **Permissions** and turn site access **on** (Firefox defaults MV3 host permissions off). Future updates install automatically from GitHub Releases.
+
+### Userscripts (Chrome & Firefox)
 
 Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/), click
 the button for each site you use above, and confirm **Install**. The manager checks for updates by itself: each
