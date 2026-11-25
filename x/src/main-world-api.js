@@ -91,15 +91,18 @@
           out[k] = { queryId: o.queryId, operationType: o.operationType, liveMethod: o.liveMethod, featureSwitches: o.featureSwitches,
             fieldToggleNames: o.fieldToggleNames, features: o.features, fieldToggles: o.fieldToggles };
         }
-        localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, t: Date.now(), ops: out, fv: featureValues }));
+        localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, t: Date.now(), base: gqlBase, auth: session.authorization || '', ops: out, fv: featureValues }));
       } catch {}
     }, 1500);
   }
 
   // Last session's ops: a head start for the first call, replaced by anything fresher
+  let gqlBase = '/i/api/graphql/';
   try {
     const c = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
     if (c && c.v === 1 && isObj(c.ops)) {
+      if (typeof c.base === 'string' && c.base.indexOf('/graphql/') !== -1) gqlBase = c.base;
+      if (typeof c.auth === 'string' && c.auth) session.authorization = c.auth;
       for (const k of Object.keys(c.ops)) {
         const e = c.ops[k];
         if (isObj(e)) learn(k, { queryId: e.queryId, operationType: e.operationType, liveMethod: e.liveMethod, featureSwitches: e.featureSwitches,
@@ -247,6 +250,7 @@
     };
   }
   try {
+    // Hook webpackChunk_twitter_responsive_web plus any other webpackChunk* array X creates
     const existing = window[WP_KEY];
     if (Array.isArray(existing)) hookArray(existing);
     else {
@@ -258,6 +262,7 @@
         set(v) { store = v; try { hookArray(v); } catch {} }
       });
     }
+    for (const k of Object.keys(window)) if (k !== WP_KEY && k.startsWith('webpackChunk') && Array.isArray(window[k])) hookArray(window[k]);
   } catch {}
 
   async function ensureHarvest() {
@@ -285,7 +290,6 @@
   const cookieCsrf = () => { const m = /(?:^|;\s*)ct0=([^;]+)/.exec(document.cookie); return m ? m[1] : ''; };
 
   // A graphql request X makes itself: learn its queryId and the exact feature flags it sends
-  let gqlBase = '/i/api/graphql/';
   function learnGraphql(url, body, method) {
     const m = GQL.exec(url);
     if (!m) return null;

@@ -17,7 +17,7 @@
     following: { op: 'HomeLatestTimeline', label: 'Following' }
   };
   const TAB_KEY = 'xbb-fast-home-tab';
-  const FALLBACK_MS = 5000;
+  const FALLBACK_MS = 1800;
   const BASE_VARS = { count: 20, includePromotedContent: true, latestControlAvailable: true, withCommunity: true };
   const stripVars = v => { const o = Object.assign({}, v || {}); delete o.cursor; delete o.seenTweetIds; delete o.requestContext; return o; };
 
@@ -151,6 +151,11 @@
       if (dead) return;
       if (r.ok) { if (!list.vars) list.vars = stripVars(vars); ingest(name, r.data, list.rows.length ? where : 'replace'); return; }
       console.warn('[XBB fast] request failed:', TABS[name].op, { kind: r.kind, status: r.status, error: r.error, txid: r.txid });
+      if (name === 'following' && (r.kind === 'missing-op' || r.kind === 'breaker-open')) {
+        list.error = 'Following feed not learned yet. Open Native X → Following once, or switch to For you.';
+        sync();
+        return;
+      }
       list.error = r.kind === 'rate-limit' ? 'X is rate limiting requests. Try again in a minute.' : 'Could not load posts from X.';
       // drift / missing-op opened the API breaker: flag.js hands the route to X. Everything else counts as soft.
       if (r.kind !== 'drift' && r.kind !== 'missing-op' && r.kind !== 'breaker-open') fast.fail('home', `load ${TABS[name].op}: ${r.kind}`, false);

@@ -18,7 +18,7 @@
   const BROKEN_KEY = 'xbb-fast-broken';
   // Route table: what Fast UI owns (M2: Home only). Anything that is not listed is X's.
   const ROUTES = { home: p => p === '/' || p === '/home' };
-  const ROUTE_OPS = { home: ['HomeTimeline', 'HomeLatestTimeline'] };
+  const ROUTE_OPS = { home: ['HomeTimeline'] };
   const LABEL = { home: 'Home' };
   const routeOf = (path = location.pathname) => { for (const k in ROUTES) if (ROUTES[k](path)) return k; return null; };
 
