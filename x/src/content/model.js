@@ -77,7 +77,7 @@
         screenName: str(core.screen_name ?? l.screen_name),
         bio: unescapeHtml(str(l.description ?? get(u, 'profile_bio', 'description'))),
         avatar: str(get(u, 'avatar', 'image_url') ?? l.profile_image_url_https),
-        banner: str(l.profile_banner_url),
+        banner: str(l.profile_banner_url ?? u.profile_banner_url ?? get(u, 'banner', 'image_url') ?? get(u, 'profile_banner', 'image_url')),
         followers: num(rcnt.followers ?? l.followers_count ?? l.normal_followers_count),
         following: num(rcnt.following ?? l.friends_count),
         tweetsCount: num(tcnt.tweets ?? l.statuses_count),

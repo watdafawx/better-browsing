@@ -47,7 +47,9 @@
       titleSub.textContent = u.tweetsCount ? `${render.fmt(u.tweetsCount)} posts` : '';
       const kids = [];
       const banner = render.safe(u.banner ? (/\/\d+x\d+$/.test(u.banner) ? u.banner : u.banner + '/1500x500') : '');
-      kids.push(h('div', { class: 'pf-banner' }, banner ? h('img', { src: banner, alt: '', decoding: 'async' }) : null));
+      const bImg = banner ? h('img', { src: banner, alt: '', decoding: 'async' }) : null;
+      if (bImg) bImg.addEventListener('error', () => bImg.remove(), { once: true });
+      kids.push(h('div', { class: 'pf-banner' }, bImg));
       const me = fast.me();
       const mine = !!(user && ((me.id && me.id === user.id) || (me.screenName && me.screenName.toLowerCase() === sn.toLowerCase())));
       let act = null;

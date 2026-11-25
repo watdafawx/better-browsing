@@ -71,7 +71,7 @@
   }
 
   // ---------- small helpers ----------
-  const safe = u => { try { const x = new URL(String(u || ''), location.href); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch { return ''; } };
+  const safe = u => { const s = String(u || '').trim(); if (!s) return ''; try { const x = new URL(s, location.href); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch { return ''; } };
   const fmt = n => {
     n = +n || 0;
     if (n <= 0) return '';
