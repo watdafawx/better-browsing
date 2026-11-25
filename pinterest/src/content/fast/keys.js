@@ -5,7 +5,7 @@
      Enter, o   open the focused card in the viewer
      s          Save the focused card (the last board, else the picker)
      Esc        closes the board picker first, then the viewer (lightbox.js), then leaves the search field
-   In the viewer: s saves, z zooms, j/k and ←/→ step (lightbox.js). Alt+Shift+P switches to Pinterest's page and back
+   In the viewer: s saves, z zooms, + / - / 0 zoom in / out / fit, i the side panel, j/k and ←/→ step (lightbox.js). Alt+Shift+P switches to Pinterest's page and back
    (flag.js).
      PIN.fast.keys.focusId()   the focused card's pin id (grid.js puts the ring back when a card is mounted again)
      PIN.fast.keys.move(d)     tests */

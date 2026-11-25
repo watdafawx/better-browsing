@@ -1,18 +1,27 @@
-/* Pinterest Fast UI: the pin viewer. A native <dialog> (showModal) in the shadow root that only follows PIN.fast.ov:
-   open = ov.push, step = ov.replace, a related pin = ov.push (one more level: Back returns to the pin before),
-   close = ov.closeAll. Closing puts the feed back on its exact pixel (flag.js).
+/* Pinterest Fast UI: the pin viewer. A native <dialog> (showModal) in the shadow root that fills the whole viewport
+   and only follows PIN.fast.ov: open = ov.push, step = ov.replace, a related pin = ov.push (one more level: Back
+   returns to the pin before), close = ov.closeAll. Closing puts the feed back on its exact pixel (flag.js).
      PIN.fast.viewer.open(id, { list })   list(): the ordered ids prev/next walks (the grid keeps its own: it is
                                           virtualized, so the DOM never holds the whole feed)
      PIN.fast.viewer.know(pins)           pins the viewer may show at once (grid, related)
      PIN.fast.viewer.isOpen()
-   The stage paints what is known at once (the grid's thumbnail), then 1200x, and the original only on zoom. A video
-   pin plays V_720P (a progressive mp4 with AAC audio) in our own <video> with the user's sound settings
-   (PIN.setupOwnVideo); an idea pin steps through its pages before moving to the next pin. The side panel has the
-   pin's text, author and stats (PinResource/get, merged over the grid pin), the comments (UnifiedCommentsResource,
-   keyed by the aggregated id) and "More like this" (RelatedModulesResource). Any of those failing is an inline note
-   here, never a reason to hand Home back to Pinterest. The top bar has Save (save.js: the last board, the chevron
-   the picker); the author and the board are Fast UI links (the viewer closes, then the profile / board view).
-   Keys: Esc closes, ←/→ and j/k step, z zooms, s saves. */
+     PIN.fast.viewer.zoom()               { s, tx, ty, w, h } (tests)
+   Layout: a 48px top bar, the media stage (all the height left, edge to edge) and a collapsible 360px side panel
+   (the top bar button, `i`; remembered in localStorage['pin-fast-lb-side']) with two tabs, "Info & Comments" and
+   "More like this", each scrolling on its own.
+   The stage paints what is known at once (the grid's thumbnail), then 1200x, and the original only on zoom. The
+   media is sized in JS to fit the stage (contain), so zoom is a transform on it, never a scrollbar: { s, tx, ty },
+   translate3d(tx, ty, 0) scale(s), the pan clamped so the picture never leaves the stage. A click (not a drag) or
+   `z` toggles 1x <-> 2.2x toward the pointer (the centre for `z`), Ctrl/Meta+wheel and +/- zoom 1x..4x toward the
+   pointer, a drag pans, a double click or `0` fits again; another pin starts at 1x. The plain wheel over the stage
+   steps (the next idea pin page first, then the next pin) at 1x, and pans when zoomed. A video pin plays V_720P
+   (a progressive mp4 with AAC audio) in our own <video> with the user's sound settings (PIN.setupOwnVideo); an idea
+   pin steps through its pages before moving to the next pin. The panel has the pin's text, author and stats
+   (PinResource/get, merged over the grid pin), the comments (UnifiedCommentsResource, keyed by the aggregated id)
+   and "More like this" (RelatedModulesResource). Any of those failing is an inline note here, never a reason to
+   hand Home back to Pinterest. The top bar has Save (save.js: the last board, the chevron the picker); the author
+   and the board are Fast UI links (the viewer closes, then the profile / board view).
+   Keys: Esc closes, ←/→ and j/k step, z zooms, + / - / 0 zoom in / out / fit, i the panel, s saves. */
 (() => {
   const { h } = PIN;
   const fast = PIN.fast;
@@ -83,7 +92,14 @@
   }
 
   // ---------- DOM ----------
-  let dlg = null, ui = null, cur = null, page = 0, zoomed = false, video = null, token = 0, relGrid = null;
+  const SIDE_KEY = 'pin-fast-lb-side';
+  const ZMAX = 4, ZCLICK = 2.2, ZSTEP = 1.4;
+  const PANEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/></svg>';
+  const pref = () => { try { const v = localStorage.getItem(SIDE_KEY); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } };
+  let dlg = null, ui = null, cur = null, page = 0, video = null, token = 0, relGrid = null;
+  let sideOpen = true, tab = 'info', lastWheel = 0, drag = null, dragMoved = false;
+  // the zoom: scale, pan (px from the stage centre) and the media's fitted size at 1x
+  const Z = { s: 1, tx: 0, ty: 0, w: 0, h: 0, aspect: 1, natural: false, orig: false };
   function build() {
     const sh = fast.shell.get() || fast.shell.mount();
     if (!sh) return null;
@@ -91,6 +107,8 @@
     const crumb = h('div', { class: 'grow' });
     const copy = h('button', { class: 'ibtn', type: 'button', 'data-lb-act': 'copy', 'aria-label': 'Copy link', title: 'Copy link' }, ico('copy'));
     const open = h('a', { class: 'ibtn', 'data-lb-act': 'open', 'aria-label': 'Open on Pinterest', title: 'Open on Pinterest', href: '/' }, ico('ext'));
+    const sideBtn = h('button', { class: 'ibtn sidebtn', type: 'button', 'data-lb-act': 'side', 'aria-label': 'Details (i)', title: 'Details (i)', 'aria-pressed': 'true' });
+    sideBtn.innerHTML = PANEL;
     const close = h('button', { class: 'ibtn', type: 'button', 'data-lb-act': 'close', 'aria-label': 'Close (Esc)', title: 'Close (Esc)' }, ico('close'));
     const savePick = h('button', { class: 'savepick lbpick', type: 'button', 'data-save-pick': '', 'aria-label': 'Choose a board', title: 'Choose a board' }, h('span', { class: 'chev', 'aria-hidden': 'true' }));
     const save = h('button', { class: 'savepill', type: 'button', 'data-save': '' }, 'Save');
@@ -98,15 +116,20 @@
     const prev = h('button', { class: 'st-nav prev', type: 'button', 'data-lb-act': 'prev', 'aria-label': 'Previous' }, ico('prev'));
     const next = h('button', { class: 'st-nav next', type: 'button', 'data-lb-act': 'next', 'aria-label': 'Next' }, ico('next'));
     const rend = h('span', { class: 'rend' });
-    const stage = h('div', { class: 'stage' }, prev, box, next, rend);
-    const side = h('aside', { class: 'side' });
+    const stage = h('div', { class: 'stage' }, box, prev, next, rend);
+    const cInfo = h('span', { class: 'pcount', 'data-count-info': '' });
+    const cRel = h('span', { class: 'pcount', 'data-count-rel': '' });
+    const tInfo = h('button', { class: 'ptab', type: 'button', role: 'tab', 'data-lb-tab': 'info' }, 'Info & Comments', cInfo);
+    const tRel = h('button', { class: 'ptab', type: 'button', role: 'tab', 'data-lb-tab': 'rel' }, 'More like this', cRel);
+    const info = h('div', { class: 'pane pinfo', role: 'tabpanel', 'aria-label': 'Info & Comments' });
     const rgrid = h('div', { class: 'rgrid' });
-    const relSec = h('section', { class: 'related' }, h('h3', null, 'More like this'), rgrid);
+    const relSec = h('div', { class: 'pane prel related', role: 'tabpanel', 'aria-label': 'More like this', hidden: true }, rgrid);
+    const side = h('aside', { class: 'side' }, h('div', { class: 'ptabs', role: 'tablist' }, tInfo, tRel), info, relSec);
     dlg = h('dialog', { class: 'lb', 'aria-label': 'Pin' },
-      h('div', { class: 'lb-head' }, back, crumb, h('div', { class: 'lb-save' }, savePick, save), copy, open, close),
-      h('div', { class: 'lb-body' }, stage, side), relSec);
+      h('div', { class: 'lb-head' }, back, crumb, h('div', { class: 'lb-save' }, savePick, save), copy, open, sideBtn, close),
+      h('div', { class: 'lb-body' }, stage, side));
     sh.root.append(dlg);
-    ui = { back, crumb, open, save, savePick, box, prev, next, rend, stage, side, rgrid, relSec };
+    ui = { back, crumb, open, save, savePick, sideBtn, box, prev, next, rend, stage, side, info, tInfo, tRel, cInfo, cRel, rgrid, relSec };
 
     // keys on window (capture): a click on the stage can leave the focus outside the dialog's subtree
     addEventListener('keydown', e => { if (dlg && dlg.open) onKey(e); }, true);
@@ -114,13 +137,24 @@
     // an unasked close (the browser closed it): put the history right
     dlg.addEventListener('close', () => { if (fast.ov.get().depth) fast.ov.closeAll(); });
     dlg.addEventListener('click', onClick);
-    // the backdrop: a click on the dialog box itself, outside its content
-    dlg.addEventListener('pointerdown', e => { if (e.target === dlg) { const r = dlg.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dlg._bd = true; } });
-    dlg.addEventListener('pointerup', e => { if (dlg._bd && e.target === dlg) fast.ov.closeAll(); dlg._bd = false; });
     // the page behind never scrolls while the dialog is up (no scroll lock: the scrollbar would come and go and
-    // reflow the grid); a wheel over the backdrop is dropped
-    dlg.addEventListener('wheel', e => { if (e.target === dlg) e.preventDefault(); }, { passive: false });
+    // reflow the grid); only a panel pane that can still scroll that way takes the wheel (a pane that cannot, or one
+    // too short to scroll, would chain it to the document), the stage has its own wheel
+    dlg.addEventListener('wheel', e => {
+      const pane = e.composedPath().find(n => n.classList && n.classList.contains('pane'));
+      const dy = e.deltaY;
+      const can = pane && (dy > 0 ? pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1 : dy < 0 ? pane.scrollTop > 0 : false);
+      if (!can) e.preventDefault();
+    }, { passive: false });
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    box.addEventListener('pointerdown', onDown);
+    box.addEventListener('pointermove', onMove);
+    box.addEventListener('pointerup', onUp);
+    box.addEventListener('pointercancel', onUp);
     box.addEventListener('click', onBoxClick);
+    box.addEventListener('dblclick', e => { if (!video) { e.preventDefault(); zoomReset(); } });
+    // the stage changes size with the window and the panel: fit the media again
+    if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (dlg.open) refit(); }).observe(stage);
     return dlg;
   }
 
@@ -150,17 +184,23 @@
     let a = e.composedPath()[0];
     if (a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    const k = e.key;
+    if (k === 'ArrowRight' || k === 'ArrowLeft') {
       if (a && a.tagName === 'VIDEO' && a.controls) return;    // seeking
-      e.preventDefault(); step(e.key === 'ArrowRight' ? 1 : -1);
-    } else if (e.key === 'j' || e.key === 'k') { e.preventDefault(); step(e.key === 'j' ? 1 : -1); }
-    else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); toggleZoom(); }
-    else if ((e.key === 's' || e.key === 'S') && cur && fast.save) { e.preventDefault(); e.stopPropagation(); fast.save.quick(cur.id, ui.save); }
+      e.preventDefault(); step(k === 'ArrowRight' ? 1 : -1);
+    } else if (k === 'j' || k === 'k') { e.preventDefault(); step(k === 'j' ? 1 : -1); }
+    else if (k === 'z' || k === 'Z') { e.preventDefault(); toggleZoom(); }
+    else if (k === '+' || k === '=') { e.preventDefault(); zoomTo(Z.s * ZSTEP); }
+    else if (k === '-' || k === '_') { e.preventDefault(); zoomTo(Z.s / ZSTEP); }
+    else if (k === '0') { e.preventDefault(); zoomReset(); }
+    else if (k === 'i' || k === 'I') { e.preventDefault(); setSide(!sideOpen, true); }
+    else if ((k === 's' || k === 'S') && cur && fast.save) { e.preventDefault(); e.stopPropagation(); fast.save.quick(cur.id, ui.save); }
   }
   function onClick(e) {
     const t = e.composedPath()[0];
-    const el = t && t.closest ? t.closest('[data-lb-act],[data-lb-pin]') : null;
+    const el = t && t.closest ? t.closest('[data-lb-act],[data-lb-pin],[data-lb-tab]') : null;
     if (!el) return;
+    if (el.hasAttribute('data-lb-tab')) { e.preventDefault(); setTab(el.getAttribute('data-lb-tab')); return; }
     if (el.hasAttribute('data-lb-pin')) {
       if (e.button || e.ctrlKey || e.metaKey || e.shiftKey) return;
       e.preventDefault();
@@ -183,25 +223,135 @@
     else if (act === 'back') fast.ov.back();
     else if (act === 'prev') step(-1);
     else if (act === 'next') step(1);
+    else if (act === 'side') setSide(!sideOpen, true);
     else if (act === 'pprev') { page = Math.max(0, page - 1); paintStage(); }
     else if (act === 'pnext') { page = Math.min(cur.storyPages.length - 1, page + 1); paintStage(); }
     else if (act === 'copy') { try { navigator.clipboard.writeText(location.origin + '/pin/' + cur.id + '/'); fast.toast('Link copied'); } catch {} }
+  }
+
+  // ---------- the panel ----------
+  function setSide(on, remember) {
+    sideOpen = !!on;
+    if (!dlg) return;
+    dlg.classList.toggle('side-off', !sideOpen);
+    ui.sideBtn.setAttribute('aria-pressed', String(sideOpen));
+    if (remember) try { localStorage.setItem(SIDE_KEY, sideOpen ? '1' : '0'); } catch {}
+  }
+  function setTab(t) {
+    tab = t === 'rel' ? 'rel' : 'info';
+    if (!ui) return;
+    ui.tInfo.setAttribute('aria-selected', String(tab === 'info'));
+    ui.tRel.setAttribute('aria-selected', String(tab === 'rel'));
+    ui.tInfo.classList.toggle('on', tab === 'info');
+    ui.tRel.classList.toggle('on', tab === 'rel');
+    ui.info.hidden = tab !== 'info';
+    ui.relSec.hidden = tab !== 'rel';
+    if (!sideOpen) setSide(true, false);
   }
 
   // ---------- the stage ----------
   function stopVideo() {
     if (video) { try { video.pause(); video.removeAttribute('src'); video.load(); } catch {} video = null; }
   }
-  function fit(w, hh) {
-    // the box keeps the pin's own aspect inside the stage (no layout read: the stage height is a CSS value)
-    const stageH = Math.min(640, Math.max(320, innerHeight - 140));
-    ui.stage.style.setProperty('--stageH', stageH + 'px');
-    const maxW = Math.max(200, Math.min(innerWidth - 48, 1240) - (innerWidth > 900 ? 380 : 0) - 140);
-    const r = (hh || 1) / (w || 1);
-    let bh = stageH - 32, bw = bh / r;
-    if (bw > maxW) { bw = maxW; bh = bw * r; }
-    ui.box.style.width = Math.round(bw) + 'px';
-    ui.box.style.height = Math.round(bh) + 'px';
+  const media = () => video || ui.box.querySelector('img');
+  function clampPan() {
+    if (Z.s <= 1) { Z.s = 1; Z.tx = 0; Z.ty = 0; return; }
+    const W = ui.stage.clientWidth, H = ui.stage.clientHeight;
+    const mx = Math.max(0, (Z.w * Z.s - W) / 2), my = Math.max(0, (Z.h * Z.s - H) / 2);
+    Z.tx = Math.max(-mx, Math.min(mx, Z.tx));
+    Z.ty = Math.max(-my, Math.min(my, Z.ty));
+  }
+  function applyZoom() {
+    const el = ui.box.querySelector('img');
+    if (el) el.style.transform = Z.s > 1 ? `translate3d(${Z.tx.toFixed(1)}px,${Z.ty.toFixed(1)}px,0) scale(${Z.s.toFixed(3)})` : '';
+    ui.box.classList.toggle('zoomed', Z.s > 1);
+  }
+  function refit() {
+    // contain: the media at its own aspect, as large as the stage allows (one layout read, on paint and on resize)
+    const el = media();
+    if (!el || !ui) return;
+    const W = ui.stage.clientWidth, H = ui.stage.clientHeight;
+    if (!W || !H) return;
+    const r = Z.aspect > 0 ? Z.aspect : 1;
+    let w = W, hh = W * r;
+    if (hh > H) { hh = H; w = H / r; }
+    Z.w = Math.round(w); Z.h = Math.round(hh);
+    el.style.width = Z.w + 'px';
+    el.style.height = Z.h + 'px';
+    clampPan(); applyZoom();
+  }
+  function stageCentre() { const r = ui.stage.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+  function zoomTo(s2, cx, cy) {
+    if (!cur || video) return;
+    const img = ui.box.querySelector('img');
+    if (!img) return;
+    s2 = Math.max(1, Math.min(ZMAX, s2));
+    const c = stageCentre();
+    // keep the picture's point under (cx, cy) where it is: t' = p - (s'/s)(p - t), p from the stage centre
+    const px = cx == null ? 0 : cx - c.x, py = cy == null ? 0 : cy - c.y;
+    const k = s2 / Z.s;
+    Z.tx = px - k * (px - Z.tx);
+    Z.ty = py - k * (py - Z.ty);
+    Z.s = s2;
+    clampPan(); applyZoom();
+    // the original, only now
+    if (Z.s > 1 && !Z.orig) {
+      Z.orig = true;
+      const pg = cur.storyPages && cur.storyPages[page];
+      setImg(img, pg ? (pg.full || pg.image) : cur.orig);
+    }
+  }
+  function zoomReset() { Z.s = 1; Z.tx = 0; Z.ty = 0; if (ui) applyZoom(); }
+  function toggleZoom(ev) {
+    if (Z.s > 1) zoomReset();
+    else zoomTo(ZCLICK, ev ? ev.clientX : null, ev ? ev.clientY : null);
+  }
+  const wheelPx = e => e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
+  function onWheel(e) {
+    e.preventDefault();
+    if (!cur) return;
+    const u = wheelPx(e), dy = e.deltaY * u, dx = e.deltaX * u;
+    if (e.ctrlKey || e.metaKey) {
+      if (!video) zoomTo(Z.s * Math.exp(-Math.max(-200, Math.min(200, dy)) * 0.004), e.clientX, e.clientY);
+      return;
+    }
+    if (Z.s > 1) { Z.tx -= dx; Z.ty -= dy; clampPan(); applyZoom(); return; }
+    // like the native viewer: one step per notch, a cooldown against trackpad streams, jitter ignored
+    if (Math.abs(dy) < 10) return;
+    const now = performance.now();
+    if (now - lastWheel < 140) return;
+    lastWheel = now;
+    step(dy > 0 ? 1 : -1);
+  }
+  function onDown(e) {
+    if (video || e.button !== 0) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: Z.tx, ty: Z.ty, moved: false };
+    dragMoved = false;
+    if (Z.s > 1) {
+      e.preventDefault();
+      try { ui.box.setPointerCapture(e.pointerId); } catch {}
+      ui.box.classList.add('panning');
+    }
+  }
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) > 5) drag.moved = true;
+    if (Z.s > 1 && drag.moved) { Z.tx = drag.tx + dx; Z.ty = drag.ty + dy; clampPan(); applyZoom(); }
+  }
+  function onUp(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    dragMoved = drag.moved;
+    drag = null;
+    ui.box.classList.remove('panning');
+    try { ui.box.releasePointerCapture(e.pointerId); } catch {}
+  }
+  function onBoxClick(e) {
+    if (video) return;          // the video handles its own clicks (PIN.setupOwnVideo)
+    if (dragMoved) { dragMoved = false; return; }
+    const t = e.composedPath()[0];
+    // at 1x only the picture zooms (not the empty stage around it); zoomed, any click fits again
+    if (Z.s > 1 || (t && t.tagName === 'IMG')) toggleZoom(e);
   }
   function setImg(img, url, then) {
     if (!url || img.getAttribute('src') === url) { then && then(); return; }
@@ -215,7 +365,8 @@
   function paintStage() {
     token++;
     stopVideo();
-    zoomed = false;
+    zoomReset();
+    Z.orig = false;
     const p = cur, box = ui.box;
     box.replaceChildren();
     box.className = 'st-box';
@@ -231,18 +382,24 @@
           h('button', { class: 'pgbtn pnext', type: 'button', 'data-lb-act': 'pnext', disabled: page === pages.length - 1 }, 'Next page'));
       }
     }
+    const ratio = (w, hh) => w > 1 && hh > 1 ? hh / w : 0;
     const vsrc = pg ? pg.video : p.video && p.video.src;
     if (vsrc) {
       box.classList.add('video');
-      fit(p.video && p.video.w || p.w, p.video && p.video.h || p.h);
+      const vr = pg && page > 0 ? 0 : ratio(p.video && p.video.w || p.w, p.video && p.video.h || p.h);
+      Z.aspect = vr || ratio(p.w, p.h) || 16 / 9;
+      Z.natural = !vr;
       const v = h('video', { preload: 'auto', poster: (pg && pg.poster) || (p.video && p.video.poster) || p.large || p.thumb });
+      v.addEventListener('loadedmetadata', () => { if (Z.natural && v === video && v.videoWidth > 1 && v.videoHeight > 1) { Z.aspect = v.videoHeight / v.videoWidth; refit(); } });
       v.src = vsrc;
       box.append(v);
       video = v;
       PIN.setupOwnVideo(v);
       ui.rend.textContent = /V_720P/.test(vsrc) ? '720p' : 'mp4';
     } else {
-      fit(p.w, p.h);
+      // a later idea pin page may have another shape than the pin: its own pixels decide
+      Z.aspect = ratio(p.w, p.h) || 1;
+      Z.natural = !ratio(p.w, p.h) || !!(pg && page > 0);
       const img = h('img', { alt: p.title || '', draggable: 'false' });
       const cands = pg ? pg.candidates : null;
       const first = pg ? (pg.image || p.thumb) : p.thumb;
@@ -250,37 +407,18 @@
       ui.rend.textContent = rendOf(first);
       let k = 0;
       img.addEventListener('error', () => { if (cands && k < cands.length) { const u = cands[k++]; if (u !== img.getAttribute('src')) img.setAttribute('src', u); } });
+      img.addEventListener('load', () => { if (Z.natural && img.isConnected && img.naturalWidth > 1 && img.naturalHeight > 1) { const a = img.naturalHeight / img.naturalWidth; if (Math.abs(a - Z.aspect) > 0.01) { Z.aspect = a; refit(); } } });
       box.append(img);
       if (!pg) setImg(img, p.large);
     }
+    refit();
     const n = neighbours();
     const multi = pages && pages.length > 1;
     ui.prev.disabled = !n.prev && !(multi && page > 0);
     ui.next.disabled = !n.next && !(multi && page < pages.length - 1);
   }
-  function toggleZoom(ev) {
-    if (!cur || video) return;
-    const img = ui.box.querySelector('img');
-    if (!img) return;
-    zoomed = !zoomed;
-    if (zoomed && ev) {
-      const r = ui.box.getBoundingClientRect();
-      img.style.setProperty('--zx', ((ev.clientX - r.left) / r.width * 100).toFixed(1) + '%');
-      img.style.setProperty('--zy', ((ev.clientY - r.top) / r.height * 100).toFixed(1) + '%');
-    }
-    ui.box.classList.toggle('zoomed', zoomed);
-    // the original, only now
-    if (zoomed) {
-      const pg = cur.storyPages && cur.storyPages[page];
-      setImg(img, pg ? (pg.full || pg.image) : cur.orig);
-    }
-  }
-  function onBoxClick(e) {
-    if (video) return;          // the video handles its own clicks (PIN.setupOwnVideo)
-    toggleZoom(e);
-  }
 
-  // ---------- the side panel ----------
+  // ---------- the info tab ----------
   function av(name, url, cls) {
     const a = h('span', { class: 'av' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' });
     if (url) a.append(h('img', { src: url, alt: '', loading: 'lazy' }));
@@ -311,18 +449,20 @@
     if (st.length) kids.push(h('div', { class: 'stats' }, st));
     const cmBox = h('div', { class: 'cms', 'data-comments': '' }, h('div', { class: 'note' }, 'Loading comments…'));
     kids.push(h('div', { class: 'cm-h' }, 'Comments', p.commentCount ? h('small', null, num(p.commentCount)) : null), cmBox);
-    ui.side.replaceChildren(...kids);
+    ui.info.replaceChildren(...kids);
+    ui.cInfo.textContent = p.commentCount ? num(p.commentCount) : '';
     const my = token, id = p.id;
     if (!p.aggregatedId) { cmBox.replaceChildren(h('div', { class: 'note' }, p.commentCount ? 'Loading comments…' : 'No comments yet.')); return; }
     getComments(p).then(r => {
       if (my !== token || !cur || cur.id !== id) return;
       if (!r.ok) { cmBox.replaceChildren(h('div', { class: 'note', 'data-cm-err': '' }, "Comments didn't load. ", h('a', { href: '/pin/' + id + '/', 'data-lb-act': 'open' }, 'Open on Pinterest'))); return; }
       if (!r.list.length) { cmBox.replaceChildren(h('div', { class: 'note' }, 'No comments yet.')); return; }
+      if (!p.commentCount) ui.cInfo.textContent = num(r.list.length);
       cmBox.replaceChildren(...r.list.map(c => h('div', { class: 'cm' }, av(c.name, c.avatar), h('div', null, h('b', null, c.name), h('span', { class: 'tx' }, c.text)))));
     });
   }
 
-  // ---------- related ----------
+  // ---------- the "More like this" tab ----------
   let relIds = [];
   function paintRelated() {
     const id = cur.id, my = token;
@@ -330,17 +470,18 @@
     if (relGrid) { relGrid.destroy(); relGrid = null; }
     ui.rgrid.replaceChildren(h('div', { class: 'note' }, 'Loading…'));
     ui.rgrid.style.height = '';
+    ui.cRel.textContent = '';
     getRelated(id).then(r => {
       if (my !== token || !cur || cur.id !== id) return;
       if (!r.ok) { ui.rgrid.replaceChildren(h('div', { class: 'note', 'data-rel-err': '' }, "Related pins didn't load.")); return; }
-      if (!r.pins.length) { ui.relSec.hidden = true; return; }
-      ui.relSec.hidden = false;
+      if (!r.pins.length) { ui.rgrid.replaceChildren(h('div', { class: 'note' }, 'Nothing related yet.')); ui.cRel.textContent = '0'; return; }
       relIds = r.pins.map(p => p.id);
+      ui.cRel.textContent = num(relIds.length);
       ui.rgrid.replaceChildren();
-      // a small static masonry (at most 60 cards; the dialog scrolls, not the document, so no virtualization)
-      const m = PIN.masonry({ gap: 12, minCol: 150, maxCols: 5, footer: fast.card.footer });
-      const w = Math.max(300, ui.rgrid.clientWidth || (Math.min(innerWidth - 48, 1240) - 44));
-      m.setWidth(w);
+      // a small static masonry in the panel (at most 60 cards; the pane scrolls, not the document, so no
+      // virtualization). Its width is the panel's, known without a layout read even while the tab is hidden.
+      const m = PIN.masonry({ gap: 10, minCol: 140, maxCols: 2, footer: fast.card.footer });
+      m.setWidth(Math.max(240, Math.min(360, innerWidth) - 28));
       m.append(r.pins);
       const frag = document.createDocumentFragment();
       r.pins.forEach((p, i) => {
@@ -358,8 +499,8 @@
 
   // ---------- following the history ----------
   function closeDlg() {
-    token++; stopVideo(); shownKey = ''; cur = null;
-    ui.box.replaceChildren(); ui.side.replaceChildren();
+    token++; stopVideo(); shownKey = ''; cur = null; zoomReset();
+    ui.box.replaceChildren(); ui.info.replaceChildren();
     if (relGrid) { relGrid.destroy(); relGrid = null; }
     ui.rgrid.replaceChildren();
     dlg.close();
@@ -377,7 +518,13 @@
     if (key === shownKey && dlg.open) return;
     shownKey = key;
     const base = known.get(id);
-    if (!dlg.open) { try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); } }
+    if (!dlg.open) {
+      // a fresh open: the panel as the user left it (on wide screens by default), on its first tab
+      const pv = pref();
+      setSide(pv == null ? innerWidth > 900 : pv, false);
+      setTab('info');
+      try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); }
+    }
     ui.back.hidden = c.depth < 2;
     ui.crumb.replaceChildren(h('span', { class: 'crumb' }, c.depth > 1 ? 'More like this' : (fast.LABEL[fast.state().route] || 'Home')));
     ui.open.setAttribute('href', '/pin/' + id + '/');
@@ -385,15 +532,17 @@
     ui.savePick.setAttribute('data-save-id', id);
     if (fast.save) fast.save.paint(ui.save, id);
     page = 0;
-    dlg.scrollTop = 0;
+    ui.info.scrollTop = 0; ui.relSec.scrollTop = 0;
     if (base) {
       cur = base;
       paintStage(); paintSide(); paintRelated();
     } else {
       // reloaded on /pin/<id>/ inside our entry: nothing known yet
       cur = { id, kind: 'image', title: '', description: '', link: '', domain: '', w: 1, h: 1, thumb: '', large: '', orig: '', sizes: [], video: null, storyPages: null, author: { name: '', username: '' }, board: null, aggregatedId: '', saveCount: 0, commentCount: 0 };
+      zoomReset();
       ui.box.replaceChildren(h('div', { class: 'note' }, 'Loading…'));
-      ui.side.replaceChildren();
+      ui.info.replaceChildren();
+      ui.cInfo.textContent = ''; ui.cRel.textContent = '';
     }
     const my = token;
     getFull(id).then(p => {
@@ -402,10 +551,10 @@
         return;
       }
       const hadBase = !!base;
-      const media = !hadBase || (p.video && p.video.src) !== (cur.video && cur.video.src) || JSON.stringify(p.storyPages) !== JSON.stringify(cur.storyPages);
+      const changed = !hadBase || (p.video && p.video.src) !== (cur.video && cur.video.src) || JSON.stringify(p.storyPages) !== JSON.stringify(cur.storyPages);
       cur = p;
       if (!hadBase || my !== token) { paintStage(); paintSide(); if (!hadBase) paintRelated(); return; }
-      if (media) paintStage();
+      if (changed) paintStage();
       paintSide();
     });
     // the next one, ahead of time
@@ -425,6 +574,8 @@
     isOpen: () => !!(dlg && dlg.open),
     get: () => cur,
     page: () => page,
+    zoom: () => ({ s: Z.s, tx: Z.tx, ty: Z.ty, w: Z.w, h: Z.h }),
+    side: () => ({ open: sideOpen, tab }),
     dialog: () => dlg
   };
 })();

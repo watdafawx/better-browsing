@@ -6,7 +6,9 @@
 //   - fastUi on: mounts, hides Pinterest's page, Home from the tapped UserHomefeedResource (0 requests of ours),
 //     promoted pins and modules dropped, pagination with the learned template and headers, the SSR path
 //   - 500 pins: at most 50 cards in the DOM while scrolling; a resize reflows the columns and keeps the anchor card
-//   - viewer: dialog, thumb -> 1200x -> original on zoom, idea pages, V_720P video, comments, related, prev/next,
+//   - viewer: full viewport (48px bar, full-height stage, collapsible 360px panel with Info & Comments / More like this
+//     tabs), thumb -> 1200x -> original on zoom, zoom to the pointer + drag to pan (clamped, no scrollbars), the wheel
+//     steps pins at 1x, idea pages, V_720P video, comments, related, prev/next,
 //     Esc and Back to the exact pixel, Pinterest's router never sees our popstates
 //   - escape hatches (Alt+Shift+P, Native button, the sidebar entry, ?pin=native) and the breaker fallback
 import { chromium, firefox } from 'playwright';
@@ -262,11 +264,84 @@ const FAST = { fastUi: true, fastUiTheme: 'black', videoMode: 'volume', videoVol
   await page.locator('pin-fast dialog.lb .st-box').click();
   r.zoom = await until(page, root => { const img = root.querySelector('dialog.lb .st-box img'); return img && /\/originals\//.test(img.getAttribute('src')) ? { src: img.getAttribute('src'), zoomed: root.querySelector('.st-box').classList.contains('zoomed') } : null; });
   checks['zoom swaps 1200x for the original'] = r.zoom?.zoomed && /originals\/1000003\.jpg$/.test(r.zoom.src);
+  // the whole viewport: a 48px bar, the stage gets all the height left, a 360px panel holds "More like this"
+  r.vp = await shadow(page, root => {
+    const d = root.querySelector('dialog.lb'), b = d.getBoundingClientRect(), st = d.querySelector('.stage').getBoundingClientRect();
+    return { x: b.left, y: b.top, w: b.width, h: b.height, vw: innerWidth, vh: innerHeight, head: d.querySelector('.lb-head').getBoundingClientRect().height,
+      stageW: st.width, stageH: st.height, side: d.querySelector('.side').getBoundingClientRect().width, radius: getComputedStyle(d).borderRadius,
+      relInSide: !!d.querySelector('.side .prel .rgrid'), relBelow: !!d.querySelector(':scope > .related'), stx: st.left + st.width / 2, sty: st.top + st.height / 2, sl: st.left, sideX: d.querySelector('.side').getBoundingClientRect().left };
+  });
+  checks['the viewer fills the viewport: 48px bar, a full-height stage, the 360px panel holds "More like this"'] = r.vp.x === 0 && r.vp.y === 0 && r.vp.w === r.vp.vw && r.vp.h === r.vp.vh
+    && r.vp.head === 48 && r.vp.stageH === r.vp.vh - 48 && r.vp.side === 360 && Math.abs(r.vp.stageW + 360 - r.vp.vw) <= 1 && r.vp.radius === '0px' && r.vp.relInSide && !r.vp.relBelow;
+  // zoom toward the pointer, drag to pan (clamped), never a scrollbar
+  const cx = r.vp.stx, cy = r.vp.sty;
+  const zst = () => page.evaluate(() => PIN.fast.viewer.zoom());
+  const lim = z => ({ mx: Math.max(0, (z.w * z.s - r.vp.stageW) / 2), my: Math.max(0, (z.h * z.s - r.vp.stageH) / 2) });
+  r.z1 = await zst();
+  await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx + 60, cy + 40, { steps: 6 }); await page.mouse.up();
+  await page.waitForTimeout(80);
+  r.z2 = await zst();
+  // far past the picture's edge, inside the viewport (Firefox reports junk coordinates outside it)
+  await page.mouse.move(r.vp.sl + 100, 70); await page.mouse.down(); await page.mouse.move(r.vp.sl + r.vp.stageW - 10, r.vp.vh - 10, { steps: 8 }); await page.mouse.up();
+  await page.waitForTimeout(80);
+  r.z3 = await zst();
+  r.zScroll = await shadow(page, root => { const b = root.querySelector('dialog.lb .st-box'), st = root.querySelector('dialog.lb .stage'), img = b.querySelector('img');
+    return { ov: getComputedStyle(b).overflow + '/' + getComputedStyle(st).overflow, pos: b.scrollLeft + b.scrollTop + st.scrollLeft + st.scrollTop, tf: img.style.transform, zoomed: b.classList.contains('zoomed') }; });
+  const l3 = lim(r.z3);
+  checks['a click zooms 2.2x at the pointer; a drag pans without toggling, clamped to the picture, no scrollbars'] = Math.abs(r.z1.s - 2.2) < 0.01 && Math.abs(r.z1.tx) < 1 && Math.abs(r.z1.ty) < 1
+    && Math.abs(r.z2.tx - Math.min(60, lim(r.z2).mx)) < 1 && Math.abs(r.z2.ty - Math.min(40, lim(r.z2).my)) < 1 && r.z2.s === r.z1.s
+    && Math.abs(r.z3.tx - l3.mx) < 1 && Math.abs(r.z3.ty - l3.my) < 1 && r.zScroll.ov === 'hidden/hidden' && r.zScroll.pos === 0 && /translate3d\(.*scale\(2\.2/.test(r.zScroll.tf) && r.zScroll.zoomed;
+  // a double click fits again; Ctrl+wheel zooms toward the pointer; + / - / 0
+  await page.mouse.dblclick(cx, cy);
+  await page.waitForTimeout(120);
+  r.z4 = await zst();
+  await shadow(page, (root, a) => root.querySelector('dialog.lb .stage').dispatchEvent(new WheelEvent('wheel', { deltaY: -150, ctrlKey: true, clientX: a.x + 150, clientY: a.y, bubbles: true, cancelable: true, composed: true })), { x: cx, y: cy });
+  r.z5 = await zst();
+  await page.keyboard.press('0'); r.z6 = await zst();
+  await page.keyboard.press('+'); r.z7 = await zst();
+  await page.keyboard.press('-'); r.z8 = await zst();
+  const k5 = r.z5.s;
+  checks['double click fits; Ctrl+wheel zooms toward the pointer; + / - / 0'] = r.z4.s === 1 && r.z4.tx === 0 && k5 > 1.5 && k5 <= 4
+    && Math.abs(r.z5.tx - Math.max(-lim(r.z5).mx, 150 * (1 - k5))) < 1 && Math.abs(r.z5.ty) < 1 && r.z6.s === 1 && Math.abs(r.z7.s - 1.4) < 0.01 && r.z8.s === 1;
+  // the wheel over the stage steps at 1x (jitter ignored), pans when zoomed, and the panel scrolls on its own
+  await page.mouse.move(r.vp.sl + 120, cy);
+  await page.mouse.wheel(0, 4);
+  await page.waitForTimeout(200);
+  r.w0 = await page.evaluate(() => location.pathname);
+  await page.mouse.wheel(0, 120);
+  r.w1 = await until(page, () => location.pathname === '/pin/1000004/' ? location.pathname : null, null, 2000);
+  await page.waitForTimeout(220);
+  await page.mouse.wheel(0, -120);
+  r.w2 = await until(page, () => location.pathname === '/pin/1000003/' ? location.pathname : null, null, 2000);
+  await page.waitForTimeout(220);
+  await page.mouse.move(r.vp.sideX + 150, cy);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(220);
+  r.w3 = await page.evaluate(() => ({ url: location.pathname, y: scrollY }));
+  await page.keyboard.press('z');
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(220);
+  r.w4 = Object.assign(await zst(), { url: await page.evaluate(() => location.pathname) });
+  checks['the wheel over the stage steps next / previous at 1x, never on jitter or over the panel, and pans when zoomed'] = r.w0 === '/pin/1000003/' && r.w1 === '/pin/1000004/' && r.w2 === '/pin/1000003/'
+    && r.w3.url === '/pin/1000003/' && r.w3.y === y0 && r.w4.url === '/pin/1000003/' && r.w4.s > 1 && Math.abs(r.w4.ty - Math.max(-lim(r.w4).my, -120)) < 1;
   // prev/next
   await page.keyboard.press('ArrowRight');
   r.next = await until(page, root => { const img = root.querySelector('dialog.lb .st-box img'); return location.pathname === '/pin/1000004/' && img && /1000004/.test(img.getAttribute('src')) ? { url: location.pathname, len: history.length } : null; });
   r.cmErr = await until(page, root => root.querySelector('dialog.lb [data-cm-err]') ? 'err' : null);
-  checks['ArrowRight steps to the next pin of the grid (replacing the entry)'] = r.next?.url === '/pin/1000004/';
+  r.nextZoom = await page.evaluate(() => PIN.fast.viewer.zoom().s);
+  checks['ArrowRight steps to the next pin of the grid (replacing the entry), back at 1x'] = r.next?.url === '/pin/1000004/' && r.nextZoom === 1;
+  // the panel: the top bar button and `i` collapse and open it; "More like this" is its second tab
+  await page.locator('pin-fast dialog.lb [data-lb-act="side"]').click();
+  r.sideOff = await shadow(page, root => { const d = root.querySelector('dialog.lb'); return { off: d.classList.contains('side-off'), shown: getComputedStyle(d.querySelector('.side')).display !== 'none', stageW: d.querySelector('.stage').getBoundingClientRect().width, pressed: d.querySelector('[data-lb-act="side"]').getAttribute('aria-pressed'), saved: localStorage.getItem('pin-fast-lb-side') }; });
+  await page.keyboard.press('i');
+  r.sideOn = await shadow(page, root => { const d = root.querySelector('dialog.lb'); return { off: d.classList.contains('side-off'), stageW: d.querySelector('.stage').getBoundingClientRect().width, saved: localStorage.getItem('pin-fast-lb-side') }; });
+  await page.locator('pin-fast dialog.lb [data-lb-tab="rel"]').click();
+  r.tabRel = await until(page, root => { const d = root.querySelector('dialog.lb'), rel = d.querySelector('.prel'), card = rel.querySelector('.card a.media');
+    return !rel.hidden && card && card.getBoundingClientRect().width > 0 && d.querySelector('[data-count-rel]').textContent ? { info: d.querySelector('.pinfo').hidden, count: d.querySelector('[data-count-rel]').textContent, sel: d.querySelector('[data-lb-tab="rel"]').getAttribute('aria-selected'), cardX: card.getBoundingClientRect().left, sideX: d.querySelector('.side').getBoundingClientRect().left, ov: getComputedStyle(rel).overflowY } : null; });
+  checks['the panel collapses (button) for an edge-to-edge stage and comes back with i; remembered'] = r.sideOff.off && !r.sideOff.shown && r.sideOff.stageW === r.vp.vw && r.sideOff.pressed === 'false' && r.sideOff.saved === '0'
+    && !r.sideOn.off && Math.abs(r.sideOn.stageW + 360 - r.vp.vw) <= 1 && r.sideOn.saved === '1';
+  checks['"More like this" is a panel tab with a count badge, scrolling on its own'] = !!r.tabRel && r.tabRel.info && r.tabRel.count === '8' && r.tabRel.sel === 'true' && r.tabRel.cardX >= r.tabRel.sideX && r.tabRel.ov === 'auto';
   checks['a comments failure is an inline note, Home stays ours'] = r.cmErr === 'err' && (await page.evaluate(() => document.documentElement.getAttribute('data-pin-fast'))) === 'home';
   // a related pin: one more level, Back returns
   await page.locator('pin-fast dialog.lb .rgrid .card a.media').first().click();

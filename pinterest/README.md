@@ -26,8 +26,9 @@ a real logged-in session showed, so nobody has to re-discover it.
 - Idea pins, images and videos all open without leaving the page; Ctrl/⌘/middle-click still goes to Pinterest.
 - **Fast UI (beta, off by default)**: our own Home instead of Pinterest's page: a virtualized masonry grid (at most 50
   cards in the DOM, nothing shifts as images load, promoted pins and shopping modules never shown), Lights Out / Dim /
-  Light, and a pin viewer (zoom to the original, idea pin pages, video with sound, comments, "More like this") whose
-  Esc/Back return to the exact scroll position. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> or the Native Pinterest button
+  Light, and a full-window pin viewer (the wheel steps through pins and idea pin pages, click/Ctrl+wheel/+/- zoom toward
+  the pointer with the original image and drag to pan, video with sound, a collapsible side panel with Info & Comments and
+  "More like this" tabs, <kbd>i</kbd>) whose Esc/Back return to the exact scroll position. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> or the Native Pinterest button
   shows Pinterest's own page; its sidebar gets a "Fast UI" entry to switch back. In the extension, once Fast UI has
   learned the homefeed request, Pinterest's own app bundle is not even downloaded (Zero-JS).
 
