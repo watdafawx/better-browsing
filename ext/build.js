@@ -5,8 +5,8 @@
 // userscript/*.js, their manifest.base.json files and ext/. Per site it writes
 //   <site>/main.js     the manifest's `world: "MAIN"` files (no runMain, no nonce hack: the manifest does it)
 //   <site>/content.js  userscript/store.js, panel.js, claim.js, ext/prelude.js, the claim, the site's content
-//                      scripts in manifest order with `<ns>.api` after defaults.js, ext/bridge.js (+ bridge-x.js
-//                      for X), popup/popup.js (the settings form) and the panel
+//                      scripts in manifest order with `<ns>.api` after defaults.js, ext/bridge.js (+ bridge-x.js / bridge-pinterest.js
+//                      for X and Pinterest), popup/popup.js (the settings form) and the panel
 //   <site>/content.css the manifest's css
 //   reddit/hls.js      hls.js as a file of its own, injected on first video by the worker (`bb-load-hls`)
 // plus background.js, popup/, icons/ and manifest.json. --dev: "Better Browsing (Dev)", the dev server's
@@ -47,7 +47,7 @@ const EXT = {
   if (!r || !r.ok || !globalThis.Hls) throw new Error('hls.js was not injected' + (r && r.error ? ': ' + r.error : ''));
 };`
   },
-  instagram: {}, x: { bridge: 'ext/bridge-x.js' }, pinterest: {}
+  instagram: {}, x: { bridge: 'ext/bridge-x.js' }, pinterest: { bridge: 'ext/bridge-pinterest.js' }
 };
 
 // match pattern -> RegExp source (Chrome's rules: `*.` host also matches the bare domain, `*` in a path is anything)

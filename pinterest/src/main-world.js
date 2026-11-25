@@ -1,6 +1,7 @@
 /* Runs in the PAGE's JS world so it can control Pinterest's own players.
    Settings arrive from the content script via <html data-pin-video='{"mode":"volume","volume":40}'>.
-   While our lightbox is open (<html data-pin-lb>), page videos are not allowed to start. */
+   While our lightbox is open (<html data-pin-lb>) or Fast UI owns the page (<html data-pin-fast>), page videos
+   are not allowed to start. */
 (() => {
   if (window.__pinMainWorld) return;
   window.__pinMainWorld = true;
@@ -64,7 +65,8 @@
     }
   }
 
-  const lbOpen = () => root.hasAttribute('data-pin-lb');
+  // Our viewer is open, or Fast UI owns the page (Pinterest's own page is hidden underneath and must stay silent)
+  const lbOpen = () => root.hasAttribute('data-pin-lb') || (root.hasAttribute('data-pin-fast') && root.getAttribute('data-pin-fast') !== 'native');
 
   // Backstop for playback that skips play() (autoplay attribute, resume after buffering)
   document.addEventListener('play', e => {

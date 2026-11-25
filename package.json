@@ -5,8 +5,8 @@
     "reddit": 1,
     "instagram": 1,
     "x": 1,
-    "pinterest": 2,
-    "combined": 1
+    "pinterest": 0,
+    "combined": 0
   },
   "private": true,
   "description": "Userscripts (Tampermonkey / Violentmonkey) for new Reddit, Instagram, X and Pinterest, one per site",
@@ -29,7 +29,8 @@
     "test:double": "node build.js && node test/double-install.mjs",
     "test:ext": "node test/ext-smoke.mjs",
     "test:all": "node test/all.mjs",
-    "release:userscript": "node release.mjs"
+    "release:userscript": "node release.mjs",
+    "test:pinterest:fast": "node build.js && node test/pinterest-fast-offline.mjs"
   },
   "devDependencies": {
     "playwright": "1.49.1"

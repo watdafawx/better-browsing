@@ -22,7 +22,13 @@ PIN.DEFAULTS = {
 
   // Page
   sidebarEntry: true,         // settings entry in Pinterest's left nav (like Instagram's sidebar gear)
-  settingsButton: false       // floating button in the bottom-right corner (Alt+W always works)
+  settingsButton: false,      // floating button in the bottom-right corner (Alt+W always works)
+
+  // Fast UI (beta, content/fast/): our own Home grid and pin viewer instead of Pinterest's page
+  fastUi: false,              // the whole mode (opt-in)
+  fastUiTheme: 'auto',        // auto | black | dim | light
+  fastUiNativeButton: true,   // 'Native Pinterest' button in the top bar
+  fastUiKeys: true            // Alt+Shift+P and the viewer's keys
 };
 
 PIN.mergeSettings = stored => Object.assign({}, PIN.DEFAULTS, stored || {});

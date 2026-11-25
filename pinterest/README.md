@@ -24,6 +24,12 @@ a real logged-in session showed, so nobody has to re-discover it.
 - **Settings** in Pinterest's left sidebar (a clone of one of its nav items), an optional floating button, or
   <kbd>Alt</kbd>+<kbd>W</kbd>. Stored in `pin-userscript-settings` (flat, like Instagram and X).
 - Idea pins, images and videos all open without leaving the page; Ctrl/⌘/middle-click still goes to Pinterest.
+- **Fast UI (beta, off by default)**: our own Home instead of Pinterest's page: a virtualized masonry grid (at most 50
+  cards in the DOM, nothing shifts as images load, promoted pins and shopping modules never shown), Lights Out / Dim /
+  Light, and a pin viewer (zoom to the original, idea pin pages, video with sound, comments, "More like this") whose
+  Esc/Back return to the exact scroll position. <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> or the Native Pinterest button
+  shows Pinterest's own page; its sidebar gets a "Fast UI" entry to switch back. In the extension, once Fast UI has
+  learned the homefeed request, Pinterest's own app bundle is not even downloaded (Zero-JS).
 
 ## Verified on a live session (Nov 2026)
 

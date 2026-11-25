@@ -59,7 +59,7 @@ try {
   checks['popup: hub lists the four sites'] = (await pop.locator('#sites li').count()) === 4;
   await pop.close();
 
-  // X: the block toggle (the message X's bridge sends) adds and removes the three DNR rules; no other site has rules
+  // X: the block toggle (the message X's bridge sends) adds and removes the three DNR rules; Pinterest has two
   const ep = await ctx.newPage();
   await ep.goto(`chrome-extension://${id}/popup/popup.html`);
   const set = (site, block) => ep.evaluate(m => chrome.runtime.sendMessage(m), { type: 'bb-ext-set', site, block });
@@ -68,7 +68,10 @@ try {
   checks['x: bb-ext-get reports the state'] = (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'bb-ext-get', site: 'x' }))).blocking === true;
   checks['x: legacy xbb-ext-set alias still works (block=false removes the rules)'] =
     (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'xbb-ext-set', block: false }))).blocking === false && (await rules()) === '';
-  checks['pinterest: no rules yet, so block=true stays off'] = (await set('pinterest', true)).blocking === false && (await rules()) === '';
+  checks['pinterest: bb-ext-set block=true installs rules 2001..2002 (s.pinimg.com/webapp/, pinterest initiators)'] = (await set('pinterest', true)).blocking === true && (await rules()) === '2001,2002'
+    && (await sw.evaluate(() => chrome.declarativeNetRequest.getDynamicRules().then(r => r.every(x => x.condition.urlFilter === '||s.pinimg.com/webapp/' && x.condition.initiatorDomains.includes('www.pinterest.com')))));
+  checks['pinterest: the pin-ext-set alias removes them again'] =
+    (await ep.evaluate(() => chrome.runtime.sendMessage({ type: 'pin-ext-set', block: false }))).blocking === false && (await rules()) === '';
   await ep.close();
 
   // Reddit: reddit/hls.js injected into the content script's world sets globalThis.Hls there (the worker's bb-load-hls)

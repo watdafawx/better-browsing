@@ -1,8 +1,8 @@
 /* Better Browsing MV3 background (Chrome service worker / Firefox event page). ext/build.js fills in the
    __BB_* tokens. Event-driven, no state in module variables that must survive: the worker can sleep at any time.
      1. DNR: a per-site table of rules that block a site's own JS while that site's Fast UI owns the page
-        (X today; Pinterest is reserved and empty; Reddit and Instagram are tweak-in-place and have none). The
-        state per site lives in storage.local (`bb:block:<site>`); content scripts read and set it by message.
+        (X 1001..1003, Pinterest 2001..2002; Reddit and Instagram are tweak-in-place and have none). The
+        state per site lives in storage.local (`bb:block:<site>`); content scripts read and set it by message (bb-ext-get/set; xbb-*, pin-* aliases).
      2. `bb-load-hls`: injects reddit/hls.js into the asking tab on first Reddit video (scripting.executeScript).
      3. `bb-open-site-settings`: opens a site in a new tab and its settings panel once the page is ready.
      4. Dev builds only: polls the dev server (/version) to hot-reload the extension and the active covered tabs,
@@ -37,8 +37,14 @@
         blockRule(1003, '||ingest.us.sentry.io/', ['x.com'])
       ]
     },
-    // Pinterest Fast UI (not built yet): the exact list is captured from a real session, never guessed.
-    pinterest: { ids: [2001, 2002, 2003], rules: [] },
+    // Pinterest Fast UI (Zero-JS): its app bundle and the bundle's CSS, only when a Pinterest page asks for them
+    pinterest: {
+      ids: [2001, 2002, 2003],
+      rules: [
+        blockRule(2001, '||s.pinimg.com/webapp/', ['www.pinterest.com', 'pinterest.com'], ['script']),
+        blockRule(2002, '||s.pinimg.com/webapp/', ['www.pinterest.com', 'pinterest.com'], ['stylesheet'])
+      ]
+    },
     reddit: { ids: [], rules: [] },
     instagram: { ids: [], rules: [] }
   };
@@ -92,14 +98,16 @@
   api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || typeof msg !== 'object') return;
     const tab = sender && sender.tab, tabId = tab && tab.id;
-    const site = msg.site || siteOf(tab && tab.url) || (/^xbb-/.test(msg.type) ? 'x' : '');
+    const site = msg.site || siteOf(tab && tab.url) || (/^xbb-/.test(msg.type) ? 'x' : /^pin-/.test(msg.type) ? 'pinterest' : '');
     switch (msg.type) {
       case 'bb-ext-get':
       case 'xbb-ext-get':
+      case 'pin-ext-get':
         getBlock(site).then(b => sendResponse({ ok: true, blocking: b, dev: DEV, buildId: BUILD_ID }));
         return true;
       case 'bb-ext-set':
       case 'xbb-ext-set':
+      case 'pin-ext-set':
         (async () => {
           const next = await applyBlock(site, !!msg.block);
           devLog('info', ['[' + site + ']', 'DNR block ->', next, msg.reason || ''], { site, tab: tabId });

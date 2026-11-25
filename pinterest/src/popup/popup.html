@@ -49,6 +49,21 @@
   <label class="check"><input type="checkbox" data-key="settingsButton"> Floating settings button (bottom right)</label>
   <p class="hint"><kbd>Alt</kbd>+<kbd>W</kbd> opens these settings on any Pinterest page, with or without either entry.</p>
 </section>
+<section>
+  <h2>Fast UI (beta)</h2>
+  <label class="check"><input type="checkbox" data-key="fastUi"> Fast UI: our own Home grid and pin viewer instead of Pinterest's page</label>
+  <label class="row">Theme
+    <select data-key="fastUiTheme">
+      <option value="auto">Auto (follow the system)</option>
+      <option value="black">Lights Out</option>
+      <option value="dim">Dim</option>
+      <option value="light">Light</option>
+    </select>
+  </label>
+  <label class="check"><input type="checkbox" data-key="fastUiNativeButton"> "Native Pinterest" button in the top bar</label>
+  <label class="check"><input type="checkbox" data-key="fastUiKeys"> Keyboard: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> switches between Fast UI and Pinterest's page; arrows and <kbd>Esc</kbd> in the viewer</label>
+  <p class="hint">Home only for now; every other page is Pinterest's own. <code>?pin=native</code> in the address bar starts on Pinterest's page, and the "Fast UI" entry in Pinterest's sidebar switches back.</p>
+</section>
 </main>
 </body>
 </html>
