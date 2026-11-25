@@ -293,16 +293,36 @@
   const expanded = new Set();
   const trCache = new Map();        // id -> { text, srcLang, provider, open }
   const trBusy = new Set();
+  const trFailed = new Set();       // ids that failed auto-translate this session (manual click still retries)
+  const trQueue = [];               // [{ id, root }] for rate-limited background auto-translate
+  let trInFlight = 0, trRateUntil = 0;
+  const TR_AUTO_MAX = 2, TR_CACHE_MAX = 500;
   const UI_LANG = String((typeof navigator !== 'undefined' && navigator.language) || 'en').toLowerCase().split('-')[0];
   const NON_LANG = new Set(['', 'und', 'zxx', 'qme', 'qht', 'qam', 'qst', 'art']);
   const TR_ENT = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&#39;': "'" };
   const unescTr = s => String(s || '').replace(/&(?:amp|lt|gt|quot|apos|#39);/g, m => TR_ENT[m]);
+  function autoLangs() {
+    const raw = String((XBB.settings && XBB.settings.fastUiAutoTranslate) || '').trim().toLowerCase();
+    if (!raw) return null;
+    const parts = raw.split(/[\s,;]+/).filter(Boolean);
+    if (!parts.length) return null;
+    if (parts.includes('*') || parts.includes('all')) return 'all';
+    return new Set(parts.map(p => p.split('-')[0]));
+  }
   function canTranslate(t) {
     if (!t || !t.id || !t.text) return false;
     const l = String(t.lang || '').toLowerCase().split('-')[0];
     if (l && l === UI_LANG) return false;
     if (t.translatable) return true;
     return !!(l && !NON_LANG.has(l));
+  }
+  function shouldAutoTr(t) {
+    if (!canTranslate(t) || trCache.has(t.id) || trBusy.has(t.id) || trFailed.has(t.id) || Date.now() < trRateUntil) return false;
+    const want = autoLangs();
+    if (!want) return false;
+    if (want === 'all') return true;
+    const l = String(t.lang || '').toLowerCase().split('-')[0];
+    return !!(l && want.has(l));
   }
   function parseTr(d) {
     if (!d || typeof d !== 'object') return null;
@@ -338,10 +358,10 @@
       if (next) old.replaceWith(next);
     }
   }
-  async function translate(id, root) {
+  async function translate(id, root, auto) {
     if (!id || trBusy.has(id)) return;
     const existing = trCache.get(id);
-    if (existing) { existing.open = !existing.open; paintTr(id, root); return; }
+    if (existing) { if (!auto) { existing.open = !existing.open; paintTr(id, root); } return; }
     trBusy.add(id);
     paintTr(id, root);
     let r = null, parsed = null;
@@ -350,7 +370,7 @@
         ',destinationLanguage=None,translationSource=Some(Google),feature=None,satelliteTweetId=None/translation/service/translateTweet';
       r = await XBB.gql.rest(p);
       if (r && r.ok) parsed = parseTr(r.data);
-      if (!parsed && XBB.gql.knows) {
+      if (!parsed && (!r || r.kind !== 'rate-limit') && XBB.gql.knows) {
         for (const op of ['GrokTranslation', 'TranslateTweet']) {
           if (await XBB.gql.knows(op)) {
             const g = await XBB.gql.call(op, { tweet_id: id, id });
@@ -361,11 +381,38 @@
     } catch {}
     trBusy.delete(id);
     if (parsed) {
+      if (trCache.size >= TR_CACHE_MAX) trCache.delete(trCache.keys().next().value);
       trCache.set(id, Object.assign({ open: true }, parsed));
+      trFailed.delete(id);
       paintTr(id, root);
     } else {
+      if (r && r.kind === 'rate-limit') trRateUntil = Date.now() + 60000;
+      if (auto) trFailed.add(id);
       paintTr(id, root);
-      fast.toast('Could not translate this post' + (r && r.kind === 'rate-limit' ? ' (rate limited)' : ''));
+      if (!auto) fast.toast('Could not translate this post' + (r && r.kind === 'rate-limit' ? ' (rate limited)' : ''));
+    }
+  }
+  function pumpAutoTr() {
+    while (trInFlight < TR_AUTO_MAX && trQueue.length) {
+      if (Date.now() < trRateUntil) { trQueue.length = 0; return; }
+      const job = trQueue.shift();
+      const t = store.tweet(job.id);
+      if (!t || !shouldAutoTr(t)) continue;
+      if (!job.root || !job.root.querySelector(`.tr-wrap[data-tr-id="${job.id}"]`)) continue;
+      trInFlight++;
+      translate(job.id, job.root, true).finally(() => { trInFlight--; pumpAutoTr(); });
+    }
+  }
+  function queueAutoTr(id, root) {
+    if (!id || !root || trQueue.some(q => q.id === id)) return;
+    trQueue.push({ id, root });
+    pumpAutoTr();
+  }
+  function scanAuto(root) {
+    if (!root || !autoLangs()) return;
+    for (const a of root.querySelectorAll('article.tweet[data-id]')) {
+      const t = store.tweet(a.dataset.id);
+      if (t && shouldAutoTr(t)) queueAutoTr(t.id, root);
     }
   }
   function fallback(id, why) {
@@ -407,9 +454,12 @@
   }
 
   function attach(node) {
+    const root = node.getRootNode ? node.getRootNode() : null;
     for (const a of node.querySelectorAll('article.tweet[data-id]')) {
       const id = a.dataset.id, bar = a.querySelector(':scope > .body > .actions');
       if (id && bar && !a._unsub) a._unsub = store.sub(id, t => syncActions(bar, t));
+      const t = id && store.tweet(id);
+      if (t && root && shouldAutoTr(t)) queueAutoTr(id, root);
     }
     for (const v of node.querySelectorAll('video')) {
       if (v.hasAttribute('data-xbb-gif')) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
@@ -578,5 +628,5 @@
   }
 
   fast.render = { tweet, userCard, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
-    act, syncActions, avatar, badge, safe, photoSrc, mp4, ratio };
+    act, syncActions, avatar, badge, safe, photoSrc, mp4, ratio, scanAuto };
 })();

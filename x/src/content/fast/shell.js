@@ -159,7 +159,142 @@
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) e.stopPropagation();
     });
 
-    const offSettings = XBB.onSettings(() => applyTheme());
+    // ---------- profile hovercard (top-layer popover="manual", instant from store + lazy UserByScreenName) ----------
+    const hc = h('div', { class: 'hovercard', popover: 'manual', role: 'dialog', 'aria-label': 'Profile preview', hidden: true });
+    root.append(hc);
+    const hcPending = new Map();
+    let hcShowT = 0, hcHideT = 0, hcHandle = '', hcAnchor = null, hcInCard = false, hcFollowBusy = false;
+    function hcClose() {
+      clearTimeout(hcShowT); clearTimeout(hcHideT);
+      hcHandle = ''; hcAnchor = null; hcInCard = false;
+      try { if (hc.matches(':popover-open')) hc.hidePopover(); } catch {}
+      hc.hidden = true;
+    }
+    function hcTriggerOf(e) {
+      const el = firstEl(e);
+      if (!el || !el.closest) return null;
+      if (el.closest('.hovercard, .rail, .topbar')) return null;
+      const a = el.closest('a.avl, .head a.name, .ctx a, .reply-to a, .text a[href^="/"]');
+      if (!a) return null;
+      const href = a.getAttribute('href') || '';
+      if (!href.startsWith('/')) return null;
+      const p = fast.handleOf && fast.handleOf(href.split(/[?#]/)[0]);
+      if (!p || !p.handle || p.tab) return null;
+      return { el: a, handle: p.handle };
+    }
+    function hcPlace(anchor) {
+      if (!anchor || !anchor.isConnected) return;
+      const r = anchor.getBoundingClientRect();
+      const w = 300, pad = 12;
+      const left = Math.max(pad, Math.min(innerWidth - w - pad, r.left));
+      hc.style.left = left + 'px';
+      const estH = hc.offsetHeight || 200;
+      const below = r.bottom + 8 + estH <= innerHeight - pad;
+      hc.style.top = (below ? r.bottom + 8 : Math.max(pad, r.top - estH - 8)) + 'px';
+    }
+    function hcPaint(handle, u, loading) {
+      if (hcHandle.toLowerCase() !== handle.toLowerCase()) return;
+      const R = fast.render, sn = (u && u.screenName) || handle;
+      const me = fast.me();
+      const mine = !!(u && ((me.id && me.id === u.id) || (me.screenName && me.screenName.toLowerCase() === sn.toLowerCase())));
+      let act = null;
+      if (u && u.id && !u.unavailable && !mine && !u.blocking) {
+        const st = u.followingState || 'none';
+        act = h('button', { class: 'btn follow' + (st === 'none' ? ' primary' : ' on'), type: 'button', 'data-hc-follow': sn, 'aria-pressed': String(st !== 'none'), disabled: hcFollowBusy || null },
+          st === 'following' ? h('span', { class: 'when-off' }, 'Following') : st === 'requested' ? 'Pending' : 'Follow',
+          st === 'following' ? h('span', { class: 'when-on' }, 'Unfollow') : null);
+      }
+      const av = u && u.avatar ? h('img', { class: 'hc-av', src: R.safe(XBB.model.avatarSize(u.avatar, 'bigger')), alt: '', decoding: 'async' })
+        : h('span', { class: 'hc-av ini' }, ((u && u.name) || sn || '?').slice(0, 1).toUpperCase());
+      const hasCounts = u && (u.followers > 0 || u.following > 0 || u.at);
+      hc.replaceChildren(
+        h('div', { class: 'hc-top' },
+          h('a', { class: 'hc-avl', href: '/' + sn }, av),
+          h('span', { class: 'spacer' }),
+          act),
+        h('a', { class: 'hc-names', href: '/' + sn },
+          h('span', { class: 'hc-name' }, h('b', null, (u && u.name) || sn), u ? R.badge(u) : null, u && u.protected ? R.icon('lock', 'i lock') : null),
+          h('span', { class: 'hc-handle' }, '@' + sn, u && u.followedBy ? h('span', { class: 'follows-you' }, 'Follows you') : null)),
+        u && u.bio ? h('div', { class: 'hc-bio', dir: 'auto' }, u.bio) : (loading ? h('div', { class: 'hc-loading' }, 'Loading…') : null),
+        hasCounts ? h('div', { class: 'hc-counts' },
+          h('span', null, h('b', null, R.fmt(u.following) || '0'), ' Following'),
+          h('span', null, h('b', null, R.fmt(u.followers) || '0'), ' Followers')) : null);
+      if (hcAnchor) hcPlace(hcAnchor);
+    }
+    async function hcFetch(handle) {
+      const key = handle.toLowerCase();
+      if (hcPending.has(key)) return hcPending.get(key);
+      const p = XBB.gql.call('UserByScreenName', { screen_name: handle, withGrokTranslatedBio: false })
+        .then(r => {
+          if (r && r.ok) {
+            const u = XBB.model.extractUser(r.data);
+            if (u && u.id) return fast.store.putProfile(u);
+          }
+          return null;
+        }).catch(() => null).finally(() => hcPending.delete(key));
+      hcPending.set(key, p);
+      return p;
+    }
+    function hcOpen(anchor, handle) {
+      hcHandle = handle; hcAnchor = anchor;
+      const prof = fast.store.profile(handle);
+      const u = prof || fast.store.userByHandle(handle) || null;
+      const fresh = prof && Date.now() - (prof.at || 0) < 5 * 60 * 1000;
+      const needFetch = !fresh && (!u || (u.bio === undefined && !u.followers && !u.following));
+      hc.hidden = false;
+      hcPaint(handle, u, needFetch);
+      try { if (typeof hc.showPopover === 'function' && !hc.matches(':popover-open')) hc.showPopover(); } catch {}
+      hcPlace(anchor);
+      if (needFetch) hcFetch(handle).then(fullU => { if (fullU) hcPaint(handle, fullU, false); else hcPaint(handle, u, false); });
+    }
+    async function hcFollow(handle) {
+      const u = fast.store.profile(handle) || fast.store.userByHandle(handle);
+      if (!u || !u.id || hcFollowBusy) return;
+      const was = u.followingState || 'none', want = was === 'none';
+      const before = { followingState: was, followers: u.followers };
+      hcFollowBusy = true;
+      const next = fast.store.putProfile(Object.assign({}, u, {
+        followingState: want ? (u.protected ? 'requested' : 'following') : 'none',
+        followers: Math.max(0, (u.followers || 0) + (want ? (u.protected ? 0 : 1) : -1))
+      }));
+      hcPaint(handle, next, false);
+      const r = await XBB.gql.rest(want ? '/i/api/1.1/friendships/create.json' : '/i/api/1.1/friendships/destroy.json',
+        { method: 'POST', form: true, body: { include_profile_interstitial_type: '1', skip_status: 'true', user_id: u.id } });
+      hcFollowBusy = false;
+      if (!r || !r.ok) {
+        const back = fast.store.putProfile(Object.assign({}, next, before));
+        fast.toast(`Couldn't ${want ? 'follow' : 'unfollow'} @${handle} on X${r && r.kind === 'rate-limit' ? ' (rate limited)' : ''}.`);
+        hcPaint(handle, back, false);
+      } else hcPaint(handle, next, false);
+    }
+    hc.addEventListener('pointerenter', () => { hcInCard = true; clearTimeout(hcHideT); });
+    hc.addEventListener('pointerleave', () => { hcInCard = false; clearTimeout(hcHideT); hcHideT = setTimeout(() => { if (!hcInCard) hcClose(); }, 220); });
+    hc.addEventListener('click', e => {
+      const fb = firstEl(e).closest('[data-hc-follow]');
+      if (fb) { e.preventDefault(); e.stopPropagation(); hcFollow(fb.dataset.hcFollow); return; }
+      const a = firstEl(e).closest('a[href]');
+      if (a) hcClose();
+    });
+    root.addEventListener('pointerover', e => {
+      const tr = hcTriggerOf(e);
+      if (!tr) return;
+      clearTimeout(hcHideT);
+      if (hcHandle.toLowerCase() === tr.handle.toLowerCase() && hcAnchor === tr.el) return;
+      clearTimeout(hcShowT);
+      hcShowT = setTimeout(() => { hcShowT = 0; if (tr.el.isConnected) hcOpen(tr.el, tr.handle); }, 320);
+    }, { passive: true });
+    root.addEventListener('pointerout', e => {
+      const tr = hcTriggerOf(e);
+      if (!tr) return;
+      clearTimeout(hcShowT);
+      clearTimeout(hcHideT);
+      hcHideT = setTimeout(() => { if (!hcInCard) hcClose(); }, 220);
+    }, { passive: true });
+    const onScrollHide = () => { if (hcHandle && !hcInCard) hcClose(); };
+    addEventListener('scroll', onScrollHide, { passive: true });
+    root.addEventListener('keydown', e => { if (e.key === 'Escape' && hcHandle) hcClose(); });
+
+    const offSettings = XBB.onSettings(() => { applyTheme(); fast.render.scanAuto && fast.render.scanAuto(root); });
     applyTheme();
     const rr = document.getElementById('react-root');
     if (rr && rr.parentNode === document.body) rr.after(host); else document.body.append(host);
@@ -196,6 +331,8 @@
       rail,
       applyTheme,
       destroy() {
+        hcClose();
+        removeEventListener('scroll', onScrollHide);
         if (typeof offSettings === 'function') offSettings();
         host.remove();
         shell = null;

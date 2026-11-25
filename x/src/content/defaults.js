@@ -22,6 +22,7 @@ XBB.DEFAULTS = {
   fastUiTheme: 'auto',        // auto (follows X's own theme) | black (Lights Out) | dim | light | a bbThemes id (hopper-dark, tokyo-night, … or custom-<name>)
   fastUiNativeButton: true,   // "Native X" button in the Fast UI top bar (Alt+Shift+X works either way)
   fastUiKeys: true,           // Fast UI keyboard shortcuts (j/k/o/m/l/t/b/c, /, .) and Alt+Shift+X (Fast UI <-> X's own page)
+  fastUiAutoTranslate: '',    // comma-separated ISO lang codes to auto-translate in Fast UI (e.g. "ar, ja, ko" or "all")
 
   // Page
   lighterPage: true,          // no backdrop blur

@@ -99,11 +99,17 @@
     } catch { return null; }
   }
 
-  // The few user fields a tweet carries about its author
+  // The user fields a tweet carries about its author (plus bio/counts when present for instant hovercards)
   function authorOf(u) {
     const n = normalizeUser(u);
     if (!n) return { id: '', name: '', screenName: '', avatar: '', verified: false, verifiedType: null };
-    return { id: n.id, name: n.name, screenName: n.screenName, avatar: n.avatar, verified: !!n.verified, verifiedType: n.verifiedType || null };
+    return {
+      id: n.id, name: n.name, screenName: n.screenName, avatar: n.avatar,
+      verified: !!n.verified, verifiedType: n.verifiedType || null,
+      bio: n.bio, followers: n.followers, following: n.following,
+      followingState: n.followingState, followedBy: n.followedBy,
+      protected: n.protected, blocking: n.blocking
+    };
   }
 
   // ---------- tweets ----------
