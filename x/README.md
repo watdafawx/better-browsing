@@ -25,9 +25,13 @@ Not carried over from the old optimizer script: timer and animation-frame thrott
 - `content/tweet.js` finds tweets by `article[data-testid="tweet"]`, the `role="group"` action bar and the `like` / `unlike` / `retweet` / `unretweet` / `retweetConfirm` / `unretweetConfirm` test ids. A tweet's own link is the date link inside its article (a quoted tweet has none). One-click retweet hides X's menu (`html.xbb-rt`) while it clicks the confirm entry.
 - `content/settings.js` clones a link in X's primary nav (Bookmarks if shown, else Explore) for the gear.
 
+## Fast UI engine (opt-in, groundwork)
+
+Milestone 1 of a faster X UI that reads X's own GraphQL data instead of its DOM. No visible feature yet; the `fastUi` setting (default off) only switches the passive tap on. `main-world-api.js` finds X's current GraphQL query IDs in its webpack chunks at run time (nothing is hardcoded), learns the session headers and live `{queryId, features, fieldToggles}` from X's own requests, and can run an operation for the content script. `content/api.js` is the client (`XBB.gql.call`, `onTap`, `getTapped`) with a per-operation circuit breaker that tells the UI to fall back to native X when X changes an operation. `content/model.js` turns the payloads into flat, defensively normalized records (`XBB.model.normalizeTweet`, `normalizeUser`, `extractTimeline`). Details and rules are in CLAUDE.md.
+
 ## Test
 
-`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
+`npm run test:x` builds the userscripts and loads `dist/better-browsing-x.user.js` into plain Chromium against fixtures in `test/x-offline.mjs` (a small clip, `test/fixtures/clip.webm`, plays in them). It never contacts x.com. `npm run test:x:api` covers the Fast UI engine in the same way (fake webpack chunks, fake GraphQL backend, payload fixtures). What it can't cover: X's real markup, which changes; after changing selectors in `video.js`, `tweet.js` or `settings.js`, check by hand on x.com.
 
 ## Firefox
 
