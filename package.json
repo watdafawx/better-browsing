@@ -30,6 +30,7 @@
     "test:ext": "node test/ext-smoke.mjs",
     "test:all": "node test/all.mjs",
     "release:userscript": "node release.mjs",
+    "release:firefox": "node ext/release-firefox.mjs",
     "test:pinterest:fast": "node build.js && node test/pinterest-fast-offline.mjs",
     "test:pinterest:m2": "node build.js && node test/pinterest-fast-m2-offline.mjs"
   },
