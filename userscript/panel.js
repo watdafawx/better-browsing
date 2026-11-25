@@ -157,6 +157,17 @@ const bbPanel = ({ cls, html, css, mount, onToggle }) => {
     .seg { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--field); border: 1px solid var(--line); }
     .seg button { flex: 1; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--weak); font: 600 12.5px inherit; cursor: pointer; }
     .seg button.on { background: var(--accent); color: #fff; }
+    .lang-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .lang-chips button {
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--field); color: var(--weak); font: 500 12px/1.3 inherit; cursor: pointer;
+      transition: background .14s, color .14s, border-color .14s;
+    }
+    .lang-chips button:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+    .lang-chips button.on {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      border-color: var(--accent); color: var(--accent); font-weight: 600;
+    }
     .btn {
       margin-top: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
       background: var(--field); color: var(--text); font: 600 12.5px inherit; cursor: pointer;

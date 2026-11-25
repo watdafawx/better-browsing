@@ -344,9 +344,15 @@
     const c = trCache.get(t.id), loading = trBusy.has(t.id);
     if (c && c.open) {
       const meta = 'Translated' + (c.srcLang ? ' from ' + c.srcLang : '') + (c.provider ? ' by ' + c.provider : '');
+      const l = String(t.lang || '').toLowerCase().split('-')[0];
+      const want = autoLangs();
+      const alreadyAuto = want === 'all' || (want && l && want.has(l));
+      const canPin = !!(l && !NON_LANG.has(l) && !alreadyAuto);
       return h('div', { class: 'tr-wrap', 'data-tr-id': t.id },
         h('span', { class: 'tr-meta' }, meta, ' ·'),
-        h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id }, 'Show original'));
+        h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id }, 'Show original'),
+        canPin ? h('span', { class: 'tr-meta' }, '·') : null,
+        canPin ? h('button', { class: 'tr-btn', type: 'button', 'data-act': 'tr-auto', 'data-id': t.id, 'data-lang': l, 'data-name': c.srcLang || l.toUpperCase() }, 'Always translate ' + (c.srcLang || l.toUpperCase())) : null);
     }
     return h('div', { class: 'tr-wrap', 'data-tr-id': t.id },
       h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id, disabled: loading || null }, loading ? 'Translating…' : 'Translate post'));
@@ -597,6 +603,21 @@
         btn.remove();
       } else if (k === 'reveal') { revealed.add(id); ctx && ctx.refresh && ctx.refresh(id); }
       else if (k === 'translate') translate(id, (ctx && ctx.root) || (art && art.getRootNode()));
+      else if (k === 'tr-auto') {
+        const lang = btn.dataset.lang, name = btn.dataset.name || lang;
+        const root = (ctx && ctx.root) || (art && art.getRootNode());
+        if (lang) {
+          const cur = String((XBB.settings && XBB.settings.fastUiAutoTranslate) || '').trim().toLowerCase().split(/[\s,;]+/).filter(Boolean);
+          const set = new Set(cur.filter(x => x !== 'all' && x !== '*'));
+          set.add(lang);
+          const next = [...set].join(', ');
+          if (XBB.settings) XBB.settings.fastUiAutoTranslate = next;
+          XBB.saveSetting && XBB.saveSetting('fastUiAutoTranslate', next);
+          fast.toast('Auto-translating ' + name + ' posts');
+          paintTr(id, root);
+          scanAuto(root);
+        }
+      }
       else if (k === 'like') toggle('like', id);
       else if (k === 'bm') toggle('bm', id);
       else if (k === 'rt') { if (e.shiftKey || XBB.settings.quickRetweet === false) rtMenu(btn, id, ctx.root); else toggle('rt', id); }
