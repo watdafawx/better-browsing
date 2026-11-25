@@ -44,9 +44,9 @@
   function unwrap(raw) {
     let r = raw;
     for (let i = 0; i < 4 && isObj(r); i++) {
-      if (r.__typename || r.rest_id || r.legacy) break;
-      if (isObj(r.result)) r = r.result;
-      else if (isObj(r.user_results)) r = r.user_results;
+      if (isObj(r.result)) { r = r.result; continue; }
+      if (r.__typename || r.rest_id || r.legacy || r.details) break;
+      if (isObj(r.user_results)) r = r.user_results;
       else if (isObj(r.user_result)) r = r.user_result;
       else if (isObj(r.tweet_results)) r = r.tweet_results;
       else break;
