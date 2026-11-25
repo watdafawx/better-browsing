@@ -35,7 +35,10 @@ html.xbb-light *, html.xbb-light *::before, html.xbb-light *::after {
 .xbb-ico svg { display: block; }
 
 /* ---------- Fast UI (content/fast/): who is on screen ---------- */
-/* While Fast UI owns the route, X's app keeps running underneath, unpainted */
+/* While Fast UI owns the route, X's app keeps running underneath, unpainted.
+   X no longer wraps everything in #react-root (streaming body children + floating drawers), so hide
+   every direct child of body except our host and our light-DOM UI (.xbb-root). */
+html[data-xbb-fast]:not([data-xbb-fast="native"]) body > :not(xbb-fast):not(.xbb-root),
 html[data-xbb-fast]:not([data-xbb-fast="native"]) #react-root { display: none !important; }
 html:not([data-xbb-fast]) xbb-fast, html[data-xbb-fast="native"] xbb-fast { display: none !important; }
 xbb-fast { display: block; }

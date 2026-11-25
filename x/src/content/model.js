@@ -264,13 +264,17 @@
   function findInstructions(root) {
     if (isArr(root)) return root;
     const q = [root];
+    let empty = null;
     for (let n = 0; q.length && n < 3000; n++) {
       const c = q.shift();
       if (!isObj(c)) continue;
-      if (isArr(c.instructions)) return c.instructions;
+      if (isArr(c.instructions)) {
+        if (c.instructions.length) return c.instructions;
+        if (!empty) empty = c.instructions;
+      }
       for (const k in c) { const v = c[k]; if (isObj(v) && !isArr(v)) q.push(v); }
     }
-    return null;
+    return empty;
   }
 
   const isPromoted = (ic, entryId) => !!(ic && (ic.promotedMetadata || get(ic, 'tweet_results', 'result', 'promotedMetadata'))) || /(^|-)(promoted|ad)-|promotedtweet/i.test(entryId || '');
@@ -327,11 +331,14 @@
         if (!isObj(i)) continue;
         const t = i.type || i.__typename;
         if (t) out.instructionTypes.push(t);
-        switch (t) {
-          case 'TimelineAddEntries': for (const e of arr(i.entries)) entry(e, false); break;
-          case 'TimelineReplaceEntry': entry(i.entry, false); break;
-          case 'TimelinePinEntry': entry(i.entry, true); break;
-          case 'TimelineAddToModule': moduleItems(i.moduleItems, str(i.moduleEntryId), null); break;
+        if (t === 'TimelineAddEntries' || (!t && isArr(i.entries)) || (isArr(i.entries) && !t.includes('Remove'))) {
+          for (const e of arr(i.entries)) entry(e, false);
+        } else if (t === 'TimelineReplaceEntry') {
+          entry(i.entry, false);
+        } else if (t === 'TimelinePinEntry') {
+          entry(i.entry, true);
+        } else if (t === 'TimelineAddToModule' || isArr(i.moduleItems)) {
+          moduleItems(i.moduleItems, str(i.moduleEntryId), null);
         }
       }
     } catch {}

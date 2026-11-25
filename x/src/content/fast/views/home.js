@@ -79,7 +79,10 @@
       const tl = XBB.model.extractTimeline(data);
       if (!tl.rawEntryCount && !tl.cursors.top && !tl.cursors.bottom) {
         // Alert-only or clear-cache instructions are valid empty responses from X (e.g. background polls): ignore them.
-        if (tl.hasInstructions) return 0;
+        if (tl.hasInstructions) {
+          console.warn('[XBB fast] empty instructions:', { op: TABS[name].op, types: tl.instructionTypes, dataKeys: data && data.data ? Object.keys(data.data) : [] });
+          return 0;
+        }
         const topKeys = data && typeof data === 'object' ? Object.keys(data) : [];
         const dataKeys = data && data.data && typeof data.data === 'object' ? Object.keys(data.data) : [];
         console.warn('[XBB fast] schema detail:', { op: TABS[name].op, topKeys, dataKeys, errors: data && data.errors });
@@ -147,6 +150,7 @@
       list.loading = false;
       if (dead) return;
       if (r.ok) { if (!list.vars) list.vars = stripVars(vars); ingest(name, r.data, list.rows.length ? where : 'replace'); return; }
+      console.warn('[XBB fast] request failed:', TABS[name].op, { kind: r.kind, status: r.status, error: r.error, txid: r.txid });
       list.error = r.kind === 'rate-limit' ? 'X is rate limiting requests. Try again in a minute.' : 'Could not load posts from X.';
       // drift / missing-op opened the API breaker: flag.js hands the route to X. Everything else counts as soft.
       if (r.kind !== 'drift' && r.kind !== 'missing-op' && r.kind !== 'breaker-open') fast.fail('home', `load ${TABS[name].op}: ${r.kind}`, false);
