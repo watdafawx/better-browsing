@@ -52,10 +52,37 @@
     }
   }
 
+  async function missingOrigins() {
+    if (!api.permissions || !api.permissions.contains) return [];
+    const all = (api.runtime.getManifest().host_permissions || []).filter(o => !o.startsWith('http://127.0.0.1'));
+    const miss = [];
+    for (const o of all) if (!(await wrap(api.permissions.contains({ origins: [o] })))) miss.push(o);
+    return miss;
+  }
+
   async function main() {
     const tabs = await wrap(api.tabs.query({ active: true, currentWindow: true }));
     const tab = tabs && tabs[0];
     const site = tab && tab.url ? siteOf(tab.url) : null;
+    const missing = await missingOrigins();
+    if (missing.length) {
+      const hosts = [...new Set(missing.map(o => o.replace(/^https?:\/\/(?:\*\.)?([^/*]+).*/, '$1')))];
+      const note = $('note');
+      note.hidden = false;
+      note.textContent = 'New site permission needed: ' + hosts.join(', ') + '. ';
+      const allow = el('button', { type: 'button', textContent: 'Allow permissions' });
+      allow.onclick = async () => {
+        const ok = await wrap(api.permissions.request({ origins: missing }));
+        if (ok) {
+          note.hidden = true;
+          if (site && tab && tab.id != null) api.tabs.reload(tab.id);
+          render(site ? { key: site.key, status: null } : null);
+        }
+      };
+      note.append(document.createElement('br'), allow);
+      render(site ? { key: site.key, status: null } : null);
+      return;
+    }
     if (!site) { render(null); return; }
     // a covered tab: open its settings panel and get out of the way
     const r = await wrap(api.tabs.sendMessage(tab.id, { type: 'bb-open-settings' }));

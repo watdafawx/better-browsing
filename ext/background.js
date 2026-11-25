@@ -224,6 +224,24 @@
     }
   });
 
+  // ---- host permission badge (Firefox MV3 leaves new host_permissions opt-in on install/update) ----
+  async function syncPermBadge() {
+    if (!api.permissions || !api.permissions.contains || !api.action || !api.action.setBadgeText) return;
+    const origins = (api.runtime.getManifest().host_permissions || []).filter(o => !o.startsWith('http://127.0.0.1'));
+    if (!origins.length) return;
+    let ok = true;
+    try { ok = await api.permissions.contains({ origins }); } catch { ok = true; }
+    try {
+      await api.action.setBadgeText({ text: ok ? '' : '!' });
+      if (!ok && api.action.setBadgeBackgroundColor) await api.action.setBadgeBackgroundColor({ color: '#f0b429' });
+      if (api.action.setTitle) await api.action.setTitle({ title: ok ? 'Better Browsing' : 'Better Browsing — click to grant new site permissions' });
+    } catch {}
+  }
+  if (api.runtime && api.runtime.onInstalled) api.runtime.onInstalled.addListener(() => syncPermBadge());
+  if (api.permissions && api.permissions.onAdded) api.permissions.onAdded.addListener(() => syncPermBadge());
+  if (api.permissions && api.permissions.onRemoved) api.permissions.onRemoved.addListener(() => syncPermBadge());
+  syncPermBadge();
+
   // ---- unpacked Chrome auto-reload: if manifest.json on disk has a newer version, reload automatically ----
   if (!DEV) {
     let lastDiskCheck = 0, diskReloading = false;
