@@ -1,6 +1,8 @@
 /* Settings form: every [data-key] input maps to one key of storage.sync `settings`.
    Mounted by the userscript's settings panel (userscript/panel.js) on its shadow root. */
 XBB.mountSettings = async function (root) {
+  // the Fast UI theme list is the shared registry (userscript/themes.js), imported themes included
+  if (typeof bbThemes !== 'undefined') bbThemes.fillSelect(root.querySelector('select[data-key="fastUiTheme"]'));
   const inputs = [...root.querySelectorAll('[data-key]')];
   const s = await XBB.loadSettings();
 

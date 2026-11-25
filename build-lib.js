@@ -37,12 +37,14 @@ function panel(srcDir) {
 
 // One site's code. `api`: code that sets <ns>.api, inserted right after defaults.js.
 // `extra`: constants the site's code uses. `main`: wraps the runMain call. `panelJs`: makes the panel.
-function siteCode({ srcDir, manifest, api, extra = '', main = s => s, panelJs, cssId, ns }) {
+// `themes`: inline userscript/themes.js (bbThemes, the Fast UI theme registry + picker) in the site's block.
+function siteCode({ srcDir, manifest, api, extra = '', main = s => s, panelJs, cssId, ns, themes = false }) {
   const [mainFiles, content, css, shadowCss] = scripts(JSON.parse(read(manifest)), srcDir);
   const shadow = shadowCss.length ? `\n${ns}.FAST_CSS = ${JSON.stringify(minCss(shadowCss.map(read).join('\n')))};` : '';
   const p = panel(srcDir);
   const i = content.findIndex(f => f.endsWith('/defaults.js'));
   return `
+${themes ? read('userscript/themes.js') : ''}
 const PANEL_HTML = ${JSON.stringify(p.html)};
 const PANEL_CSS = ${JSON.stringify(p.css)};
 ${extra}
@@ -83,7 +85,7 @@ ${hlsSource()}
     panelJs: `IGB.openSettings = bbPanel({ cls: 'igb-root igb-settings', html: PANEL_HTML, css: PANEL_CSS, mount: root => IGB.mountSettings(root) });`
   },
   x: {
-    label: 'X', manifest: 'x/manifest.base.json', srcDir: 'x/src', cssId: 'xbb-css', ns: 'XBB',
+    label: 'X', manifest: 'x/manifest.base.json', srcDir: 'x/src', cssId: 'xbb-css', ns: 'XBB', themes: true,
     match: ['https://x.com/*'], exclude: [],
     test: `host === 'x.com'`,
     about: 'Browser video controls with one video playing at a time, sound on, one-click retweet, Like + Retweet and copy link for Discord on X. Settings: the sidebar gear or Alt+W.',
@@ -91,7 +93,7 @@ ${hlsSource()}
     panelJs: `XBB.openSettings = bbPanel({ cls: 'xbb-root xbb-settings', html: PANEL_HTML, css: PANEL_CSS, mount: root => XBB.mountSettings(root) });`
   },
   pinterest: {
-    label: 'Pinterest', manifest: 'pinterest/manifest.base.json', srcDir: 'pinterest/src', cssId: 'pin-css', ns: 'PIN',
+    label: 'Pinterest', manifest: 'pinterest/manifest.base.json', srcDir: 'pinterest/src', cssId: 'pin-css', ns: 'PIN', themes: true,
     match: ['https://*.pinterest.com/*'], exclude: [],
     test: `/(^|\\.)pinterest\\.com$/.test(host)`,
     about: 'Pin viewer over the grid, video sound at your volume, offscreen pause and promoted pins hidden on Pinterest. Settings: Pinterest\'s left sidebar or Alt+W.',

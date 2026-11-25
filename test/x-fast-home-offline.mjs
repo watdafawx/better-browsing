@@ -398,10 +398,31 @@ const scrollToTweet = (page, id, block = 'center') => page.evaluate(([id, block]
   check('escape: Alt+Shift+X switches both ways', k1.attr === 'native' && k1.react !== 'none' && k2.attr === 'home' && k2.react === 'none', { k1, k2 });
 
   // theme
+  await page.locator('xbb-fast [data-bt-open]').click();     // the Appearance popover (userscript/themes.js)
   await page.locator('xbb-fast [data-theme-pick="dim"]').click();
   await page.waitForTimeout(300);
   const dim = await page.evaluate(() => ({ t: document.querySelector('xbb-fast').getAttribute('data-theme'), bg: getComputedStyle(document.querySelector('xbb-fast')).backgroundColor, saved: JSON.parse(localStorage.getItem('xbb-userscript-settings')).settings.fastUiTheme }));
   check('theme: Dim applies and is saved', dim.t === 'dim' && dim.bg === 'rgb(21, 32, 43)' && dim.saved === 'dim', dim);
+
+  // Hopper palette from the picker: exact colours, variables inline, data-theme by mode, the page behind it, no leftovers on a classic theme
+  await page.locator('xbb-fast [data-bt-open]').click();
+  const tn = await page.evaluate(() => { const sr = document.querySelector('xbb-fast').shadowRoot; return { n: sr.querySelectorAll('.bt-item').length, label: sr.querySelector('.bt-cur').textContent, open: sr.querySelector('.bt-pop').matches(':popover-open') }; });
+  check('picker: opens, lists 22 themes (3 classic + 19 Hopper)', tn.open && tn.n === 22 && tn.label === 'Dim', tn);
+  await page.locator('xbb-fast [data-theme-pick="tokyo-night"]').click();
+  await page.waitForTimeout(300);
+  const tk = await page.evaluate(() => { const h = document.querySelector('xbb-fast'), sr = h.shadowRoot; return { t: h.getAttribute('data-theme'), id: h.getAttribute('data-bb-theme'), bg: getComputedStyle(h).backgroundColor, accent: h.style.getPropertyValue('--accent'), html: getComputedStyle(document.documentElement).backgroundColor, saved: JSON.parse(localStorage.getItem('xbb-userscript-settings')).settings.fastUiTheme, label: sr.querySelector('.bt-cur').textContent, pressed: sr.querySelector('[data-theme-pick="tokyo-night"]')?.getAttribute('aria-pressed') }; });
+  check('theme: Tokyo Night is the exact Hopper palette, saved, the page behind follows', tk.t === 'black' && tk.id === 'tokyo-night' && tk.bg === 'rgb(26, 27, 38)' && tk.accent === '#7aa2f7' && tk.html === 'rgb(26, 27, 38)' && tk.saved === 'tokyo-night' && tk.label === 'Tokyo Night' && tk.pressed === 'true', tk);
+  // import a custom theme (Hopper JSON shape), pick it, then back to a classic theme
+  const imp = await page.evaluate(() => XBB.fast.themes.importJson(JSON.stringify({ name: 'T', themes: [{ name: 'Test Teal', mode: 'light', colors: { background: '#f0fdfa', foreground: '#134e4a', 'primary.background': '#0d9488' } }] })));
+  check('import: Hopper-style JSON becomes a custom theme', imp.ok && imp.ids[0] === 'custom-test-teal', imp);
+  await page.evaluate(() => XBB.saveSetting('fastUiTheme', 'custom-test-teal'));
+  await page.waitForTimeout(300);
+  const ct = await page.evaluate(() => { const h = document.querySelector('xbb-fast'); return { t: h.getAttribute('data-theme'), bg: getComputedStyle(h).backgroundColor, scheme: h.style.colorScheme }; });
+  check('theme: an imported light theme applies (data-theme light)', ct.t === 'light' && ct.bg === 'rgb(240, 253, 250)' && ct.scheme === 'light', ct);
+  await page.evaluate(() => { XBB.fast.themes.removeCustom('custom-test-teal'); return XBB.saveSetting('fastUiTheme', 'dim'); });
+  await page.waitForTimeout(300);
+  const backDim = await page.evaluate(() => { const h = document.querySelector("xbb-fast"); return { t: h.getAttribute("data-theme"), bg: getComputedStyle(h).backgroundColor, inline: h.style.cssText, page: document.documentElement.hasAttribute('data-bb-page') }; });
+  check('theme: back to Dim leaves no inline variables or page colour behind', backDim.t === "dim" && backDim.bg === "rgb(21, 32, 43)" && backDim.inline === "" && !backDim.page, backDim);
 
   // idle: nothing changes by itself, in the page or in the shadow root
   await page.evaluate(() => { for (const v of document.querySelector('xbb-fast').shadowRoot.querySelectorAll('video')) v.pause(); });
