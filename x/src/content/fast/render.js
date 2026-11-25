@@ -342,20 +342,27 @@
   function trWrap(t) {
     if (!canTranslate(t)) return null;
     const c = trCache.get(t.id), loading = trBusy.has(t.id);
-    const label = loading ? 'Translating…' : (c && c.open ? 'Hide translation' : 'Translate post');
-    const meta = c ? ('Translated' + (c.srcLang ? ' from ' + c.srcLang : '') + (c.provider ? ' by ' + c.provider : '')) : '';
+    if (c && c.open) {
+      const meta = 'Translated' + (c.srcLang ? ' from ' + c.srcLang : '') + (c.provider ? ' by ' + c.provider : '');
+      return h('div', { class: 'tr-wrap', 'data-tr-id': t.id },
+        h('span', { class: 'tr-meta' }, meta, ' ·'),
+        h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id }, 'Show original'));
+    }
     return h('div', { class: 'tr-wrap', 'data-tr-id': t.id },
-      h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id, disabled: loading || null }, label),
-      c && c.open ? h('div', { class: 'tr-box', dir: 'auto' },
-        meta ? h('div', { class: 'tr-meta' }, meta) : null,
-        h('div', { class: 'tr-text' }, c.text)) : null);
+      h('button', { class: 'tr-btn', type: 'button', 'data-act': 'translate', 'data-id': t.id, disabled: loading || null }, loading ? 'Translating…' : 'Translate post'));
   }
   function paintTr(id, root) {
     const t = store.tweet(id);
     if (!t || !root) return;
-    for (const old of root.querySelectorAll(`.tr-wrap[data-tr-id="${id}"]`)) {
-      const next = trWrap(t);
-      if (next) old.replaceWith(next);
+    const c = trCache.get(id), show = !!(c && c.open);
+    for (const art of root.querySelectorAll(`article.tweet[data-id="${id}"]`)) {
+      const txt = art.querySelector(':scope > .body > .text');
+      if (txt) {
+        if (show) { txt.textContent = c.text; txt.removeAttribute('lang'); }
+        else { txt.replaceChildren(rich(t)); if (t.lang) txt.setAttribute('lang', t.lang); else txt.removeAttribute('lang'); }
+      }
+      const old = art.querySelector(`:scope > .body > .tr-wrap[data-tr-id="${id}"]`);
+      if (old) { const next = trWrap(t); if (next) old.replaceWith(next); }
     }
   }
   async function translate(id, root, auto) {
@@ -433,7 +440,10 @@
         h('div', { class: 'body' },
           head(t),
           t.replyTo && t.replyTo.screenName && !row.threadPrev ? h('div', { class: 'reply-to' }, 'Replying to ', h('a', { href: '/' + t.replyTo.screenName }, '@' + t.replyTo.screenName)) : null,
-          t.text ? h('div', { class: 'text' + (long ? ' clamp' : ''), lang: t.lang || null, dir: 'auto' }, rich(t)) : null,
+          t.text ? (() => {
+            const tr = trCache.get(t.id), showTr = !!(tr && tr.open);
+            return h('div', { class: 'text' + (long ? ' clamp' : ''), lang: showTr ? null : (t.lang || null), dir: 'auto' }, showTr ? tr.text : rich(t));
+          })() : null,
           long ? h('button', { class: 'show-more', type: 'button', 'data-act': 'more', 'data-id': t.id }, 'Show more') : null,
           trWrap(t),
           media(t),

@@ -140,13 +140,11 @@ main { min-width: 0; border-inline: 1px solid var(--line); min-height: calc(100v
 .tweet .text.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
 .tweet .show-more { color: var(--accent); margin-top: 2px; }
 .tweet .show-more:hover { text-decoration: underline; }
-.tweet .tr-wrap { margin-top: 4px; }
-.tweet .tr-btn { color: var(--accent); font-size: 13px; line-height: 18px; }
+.tweet .tr-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
+.tweet .tr-meta { font-size: 12px; color: var(--muted); }
+.tweet .tr-btn { color: var(--accent); font-size: 12.5px; line-height: 18px; }
 .tweet .tr-btn:hover { text-decoration: underline; }
 .tweet .tr-btn:disabled { opacity: .6; cursor: default; text-decoration: none; }
-.tweet .tr-box { margin-top: 6px; padding: 8px 10px; border-left: 2px solid var(--accent); border-radius: 6px; background: var(--bg-2); }
-.tweet .tr-meta { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
-.tweet .tr-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 
 /* ---------- profile hovercard ---------- */
 .hovercard { position: fixed; inset: auto; margin: 0; width: 300px; max-width: calc(100vw - 24px); padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); color: var(--text); box-shadow: 0 8px 28px rgb(0 0 0 / .45); z-index: 950; font: 400 14px/19px var(--font); }
