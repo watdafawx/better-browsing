@@ -78,6 +78,11 @@
       const list = lists[name];
       const tl = XBB.model.extractTimeline(data);
       if (!tl.rawEntryCount && !tl.cursors.top && !tl.cursors.bottom) {
+        // Alert-only or clear-cache instructions are valid empty responses from X (e.g. background polls): ignore them.
+        if (tl.hasInstructions) return 0;
+        const topKeys = data && typeof data === 'object' ? Object.keys(data) : [];
+        const dataKeys = data && data.data && typeof data.data === 'object' ? Object.keys(data.data) : [];
+        console.warn('[XBB fast] schema detail:', { op: TABS[name].op, topKeys, dataKeys, errors: data && data.errors });
         fast.fail('home', `schema: no timeline in ${TABS[name].op}`, true);
         return -1;
       }

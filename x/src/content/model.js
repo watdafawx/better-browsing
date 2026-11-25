@@ -277,10 +277,11 @@
 
   function extractTimeline(data, opts) {
     const keepPromoted = !!(opts && opts.keepPromoted);
-    const out = { items: [], cursors: { top: null, bottom: null, showMore: [] }, rawEntryCount: 0, skippedPromoted: 0 };
+    const out = { items: [], cursors: { top: null, bottom: null, showMore: [] }, rawEntryCount: 0, skippedPromoted: 0, hasInstructions: false, instructionTypes: [] };
     try {
       const ins = findInstructions(data);
       if (!ins) return out;
+      out.hasInstructions = true;
       const cursor = (c, entryId) => {
         const v = str(c.value);
         if (!v) return;
@@ -324,7 +325,9 @@
       };
       for (const i of ins) {
         if (!isObj(i)) continue;
-        switch (i.type) {
+        const t = i.type || i.__typename;
+        if (t) out.instructionTypes.push(t);
+        switch (t) {
           case 'TimelineAddEntries': for (const e of arr(i.entries)) entry(e, false); break;
           case 'TimelineReplaceEntry': entry(i.entry, false); break;
           case 'TimelinePinEntry': entry(i.entry, true); break;
