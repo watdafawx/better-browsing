@@ -1,7 +1,7 @@
 /* Extension build only: runs inside https://*.redgifs.com/ifr/* (all_frames: true).
    Replaces Redgifs Embed Tweaks: blocks click-to-open-redgifs.com, makes click play/pause, adds a hover
-   volume slider synced with Reddit's video settings, auto-HD, one-at-a-time playback, keyboard shortcuts,
-   and a native download button. Controlled by Reddit's `redgifsTweaks` setting (default on). */
+   volume slider synced with Reddit's video settings, auto-unmute, auto-HD, one-at-a-time playback,
+   keyboard shortcuts, and a native download button. Controlled by Reddit's `redgifsTweaks` setting (default on). */
 (() => {
   if (window === window.top) return;   // only embedded /ifr/ frames, never top-level redgifs.com
   const api = typeof browser !== 'undefined' && browser.runtime ? browser : chrome;
@@ -11,13 +11,13 @@
   const stGet = keys => new Promise(r => { try { Promise.resolve(api.storage.local.get(keys)).then(r, () => r({})); } catch { r({}); } });
   const stSet = obj => { try { Promise.resolve(api.storage.local.set(obj)).catch(() => {}); } catch {} };
 
-  // Cross-iframe one-at-a-time channel (same origin: www.redgifs.com)
   const myToken = Math.random().toString(36).slice(2);
   let bc = null;
   try { bc = new BroadcastChannel('bb-redgifs-one'); } catch {}
 
   let cfg = { redgifsTweaks: true, videoMode: 'volume', videoVolume: 40, videoLoop: true, videoPauseOffscreen: true, videoPauseOnHide: true };
   let prefs = { volume: null, hd: true };
+  let userMuted = false;
 
   function loadCfg() {
     return stGet([REDDIT_KEY, PREF_KEY]).then(r => {
@@ -56,11 +56,29 @@
     (document.head || document.documentElement).append(st);
   }
 
-  function enhance(video) {
-    if (video._bbRg) return;
-    video._bbRg = true;
-    injectCss();
+  const wantVolume = () => Math.max(0, Math.min(1, prefs.volume != null ? +prefs.volume : (+cfg.videoVolume || 40) / 100));
 
+  function applyAudio(video) {
+    if (!video || userMuted) return;
+    const vol = wantVolume();
+    video.volume = vol;
+    if (cfg.videoMode === 'muted' || vol === 0) {
+      video.muted = true;
+    } else if (cfg.videoMode === 'volume') {
+      const offBtn = document.querySelector('.soundOff, [aria-label="Sound Off"]');
+      if (offBtn) offBtn.click();
+      if (video.muted) {
+        video.muted = false;
+        // If browser paused playback because audible autoplay isn't allowed yet, resume muted until first click
+        if (video.paused && cfg.videoMode !== 'off') {
+          video.muted = true;
+          video.play().catch(() => {});
+        }
+      }
+    }
+  }
+
+  function mountUi(video) {
     // 1. Block click-to-open-redgifs.com on the video's wrapping <a> and make click play/pause cleanly
     const link = video.closest('a[href]');
     if (link && !link._bbRgLink) {
@@ -74,32 +92,29 @@
       }, true);
     }
 
-    // 2. Volume, sound & loop
-    const wantVol = Math.max(0, Math.min(1, prefs.volume != null ? +prefs.volume : (+cfg.videoVolume || 40) / 100));
-    video.volume = wantVol;
-    video.loop = cfg.videoLoop !== false;
-    if (cfg.videoMode === 'off') {
-      video.autoplay = false;
-      if (!video.paused) video.pause();
-    } else if (cfg.videoMode === 'muted' || wantVol === 0) {
-      video.muted = true;
-    } else if (cfg.videoMode === 'volume') {
-      const offBtn = document.querySelector('.soundOff, [aria-label="Sound Off"]');
-      if (offBtn) offBtn.click();
-      else video.muted = false;
+    // 2. Track manual mute clicks on Redgifs' own sound button so we don't fight the user
+    const soundBox = document.querySelector('.SoundButton');
+    if (soundBox && !soundBox._bbRgBound) {
+      soundBox._bbRgBound = true;
+      soundBox.addEventListener('click', e => {
+        if (e.isTrusted && !e.target.closest('.bb-rg-vol')) {
+          if (soundBox.querySelector('.soundOn, [aria-label="Sound On"]')) userMuted = true;
+          else userMuted = false;
+        }
+      }, true);
     }
 
     // 3. Hover volume slider inside .SoundButton
-    const soundBox = document.querySelector('.SoundButton');
     if (soundBox && !soundBox.querySelector('.bb-rg-vol')) {
       const wrap = document.createElement('div');
       wrap.className = 'bb-rg-vol';
       const slider = document.createElement('input');
       slider.type = 'range'; slider.min = '0'; slider.max = '1'; slider.step = '0.02';
-      slider.value = String(wantVol);
+      slider.value = String(wantVolume());
       slider.setAttribute('aria-label', 'Volume');
       slider.addEventListener('input', e => {
         const v = +e.target.value;
+        userMuted = v === 0;
         video.volume = v;
         video.muted = v === 0;
         prefs.volume = v;
@@ -135,7 +150,38 @@
       sidebar.append(dl);
     }
 
-    // 5. One-at-a-time playback across multiple Redgifs embeds
+    // 5. Auto-HD (click SD button once if prefs.hd is on)
+    if (prefs.hd !== false) {
+      const q = document.querySelector('.gifQualityButton');
+      if (q && !q._bbRgHd && /\bSD\b/i.test(q.textContent || q.getAttribute('aria-label') || '')) {
+        q._bbRgHd = true;
+        q.click();
+      }
+    }
+  }
+
+  function enhance(video) {
+    if (video._bbRg) { mountUi(video); return; }
+    video._bbRg = true;
+    injectCss();
+    mountUi(video);
+
+    video.loop = cfg.videoLoop !== false;
+    if (cfg.videoMode === 'off') {
+      video.autoplay = false;
+      if (!video.paused) video.pause();
+    } else {
+      applyAudio(video);
+    }
+
+    // Redgifs' React often re-mutes on canplay/playing right after mount: enforce once playback starts
+    let unmuteTries = 0;
+    const retryAudio = () => {
+      if (cfg.videoMode === 'volume' && !userMuted && video.muted && unmuteTries++ < 4) applyAudio(video);
+    };
+    video.addEventListener('canplay', retryAudio);
+    video.addEventListener('playing', retryAudio);
+
     if (bc) {
       video.addEventListener('play', () => { try { bc.postMessage({ playing: myToken }); } catch {} });
       bc.addEventListener('message', e => {
@@ -143,7 +189,6 @@
       });
     }
 
-    // 6. Pause when hidden or scrolled out of view
     if (cfg.videoPauseOnHide !== false) {
       document.addEventListener('visibilitychange', () => { if (document.hidden && !video.paused) video.pause(); });
     }
@@ -153,13 +198,12 @@
       }, { threshold: 0.2 }).observe(video);
     }
 
-    // 7. Keyboard shortcuts when iframe has focus
     document.addEventListener('keydown', e => {
       if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
       if (e.code === 'Space') { e.preventDefault(); video.paused ? video.play().catch(() => {}) : video.pause(); }
       else if (e.code === 'ArrowRight') { e.preventDefault(); video.currentTime = Math.min(video.duration || 0, video.currentTime + 5); }
       else if (e.code === 'ArrowLeft') { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 5); }
-      else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); video.muted = !video.muted; }
+      else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); userMuted = !video.muted; video.muted = !video.muted; }
       else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault();
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -170,13 +214,14 @@
 
   loadCfg().then(() => {
     if (cfg.redgifsTweaks === false) return;
-    const find = () => document.querySelector("video[src]:not([src=''])");
-    const v = find();
-    if (v) { enhance(v); return; }
-    const mo = new MutationObserver(() => {
-      const hit = find();
-      if (hit) { mo.disconnect(); enhance(hit); }
-    });
-    mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+    const tick = () => {
+      const v = document.querySelector('video');
+      if (v) enhance(v);
+    };
+    tick();
+    // Keep watching briefly while React hydrates .SoundButton / .sidebar after <video> mounts
+    const mo = new MutationObserver(tick);
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => mo.disconnect(), 12000);
   });
 })();
