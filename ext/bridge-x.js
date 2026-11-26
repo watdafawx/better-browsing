@@ -14,10 +14,12 @@
   try { blocking = localStorage.getItem(BLOCK_SNAP) === '1'; } catch {}
   if (blocking) root.setAttribute('data-xbb-ext-block', '1');
 
+  const CORE_MUTS = ['FavoriteTweet', 'UnfavoriteTweet', 'CreateRetweet'];
   function hasCachedHome() {
     try {
       const c = JSON.parse(localStorage.getItem(LS_OPS) || 'null');
-      return !!(c && c.auth && c.ops && c.ops.HomeTimeline && c.ops.HomeTimeline.queryId && c.ops.HomeTimeline.liveVars);
+      if (!(c && c.auth && c.ops && c.ops.HomeTimeline && c.ops.HomeTimeline.queryId && c.ops.HomeTimeline.liveVars)) return false;
+      return CORE_MUTS.every(k => c.ops[k] && c.ops[k].queryId);
     } catch { return false; }
   }
   function setLocalBlock(on) {

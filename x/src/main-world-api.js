@@ -239,7 +239,7 @@
   }
   let draining = null;
   const drainAll = () => draining || (draining = new Promise(done => {
-    const tick = () => { let fin = true; try { fin = step(12); } catch {} if (fin) { draining = null; done(); } else setTimeout(tick, 0); };
+    const tick = () => { let fin = true; try { fin = step(12); } catch {} if (fin) { draining = null; if (saveTimer) saveNow(); done(); } else setTimeout(tick, 0); };
     tick();
   }));
   let idleTimer = 0;

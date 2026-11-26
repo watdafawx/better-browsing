@@ -546,12 +546,16 @@
     const n = (t.stats && t.stats[m.stat]) || 0;
     const undo = store.patch(id, { viewer: { [m.key]: want }, stats: { [m.stat]: Math.max(0, n + (want ? 1 : -1)) } });
     fast.extraRequests++;
+    const op = want ? m.on : m.off;
     let r;
-    try { r = await XBB.gql.call(want ? m.on : m.off, m.vars(id, want)); } catch (e) { r = { ok: false }; }
+    try { r = await XBB.gql.call(op, m.vars(id, want), { method: 'POST' }); } catch (e) { r = { ok: false }; }
     busy.delete(kind + id);
     if (r && r.ok) return true;
     undo();
-    fast.toast(`Couldn't ${want ? '' : 'undo '}${m.what} on X${r && r.kind === 'rate-limit' ? ' (rate limited)' : ''}. Nothing changed.`);
+    console.warn('[XBB fast] action failed:', op, r && r.kind, r && r.status, r && r.error);
+    const unlearned = r && (r.kind === 'missing-op' || (r.kind === 'breaker-open' && r.breaker && r.breaker.kind === 'missing-op'));
+    const why = r && r.kind === 'rate-limit' ? ' (rate limited)' : unlearned ? ' (not learned yet — open Native X once to learn)' : '';
+    fast.toast(`Couldn't ${want ? '' : 'undo '}${m.what} on X${why}. Nothing changed.`);
     return false;
   }
   async function likeRetweet(id) {
