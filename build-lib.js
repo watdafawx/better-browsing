@@ -5,7 +5,7 @@ const fs = require('fs');
 const REPO = 'https://github.com/watdafawx/better-browsing';
 const RELEASE = `${REPO}/releases/download/userscript/`;
 const read = f => fs.readFileSync(f, 'utf8');
-const SHARED = ['userscript/run-main.js', 'userscript/store.js', 'userscript/panel.js', 'userscript/claim.js'];
+const SHARED = ['userscript/run-main.js', 'userscript/store.js', 'userscript/panel.js', 'userscript/claim.js', 'userscript/volctrl.js'];
 // hls.js with its source-map pointer removed (the userscript inlines it, the extension ships it as reddit/hls.js)
 const hlsSource = () => read('src/vendor/hls.min.js').replace(/^\/\/# sourceMappingURL=.*$/m, '');
 // One icon per script, so four installed scripts (and the old combined one) are told apart in the manager's

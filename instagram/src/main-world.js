@@ -109,6 +109,7 @@
   const nativeOn = () => root.classList.contains('igb-native') && !location.pathname.startsWith('/stories/');
   const userWrite = el => {
     if (!active(el)) return true;
+    if (el.hasAttribute('data-bb-vol-write')) { el.dataset.igbUserAudio = '1'; waiting.delete(el); return true; }
     if (nativeOn() || !userOn(el)) return false;
     el.dataset.igbUserAudio = '1';
     waiting.delete(el);

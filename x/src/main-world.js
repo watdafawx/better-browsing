@@ -132,6 +132,7 @@
   const nativeOn = () => root.classList.contains('xbb-native');
   const userWrite = el => {
     if (!active(el)) return true;
+    if (el.hasAttribute('data-bb-vol-write')) { markUserAudio(el); waiting.delete(el); return true; }
     el._xbbPageWrite = performance.now();     // a write from the page, allowed below or not: not the browser's
     if (nativeOn() || !userOn(el)) return false;
     markUserAudio(el);
@@ -146,7 +147,12 @@
   Object.defineProperty(P, 'volume', {
     configurable: true, enumerable: true,
     get() { return volDesc.get.call(this); },
-    set(v) { if (userWrite(this)) setVol(this, v); }
+    set(v) {
+      if (userWrite(this)) {
+        setVol(this, v);
+        if (this.hasAttribute('data-bb-vol-write') && v > 0 && cfg.mode !== 'muted') sessionVol = v;
+      }
+    }
   });
   // The autoplay attribute bypasses play(); neuter it when autoplay is gated.
   Object.defineProperty(P, 'autoplay', {

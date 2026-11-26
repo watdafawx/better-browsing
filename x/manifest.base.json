@@ -1,6 +1,6 @@
 {
   "name": "X Better Browsing",
-  "version": "1.4.16",
+  "version": "1.4.17",
   "description": "X part of the userscript. This file lists the scripts build.js puts into dist/better-browsing.user.js, in load order, and holds the X part's version.",
   "content_scripts": [
     {
