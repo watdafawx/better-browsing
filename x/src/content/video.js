@@ -126,7 +126,9 @@
         if (s.videoPauseOffscreen && !v.paused && !isPip(v) && document.fullscreenElement !== v) quiet(v);
       }
     }
-    if (chosen && sc(chosen) < 0.1) chosen = null;
+    // a video you started stays the pick while it is mostly in view; once only a sliver is left, another
+    // video that is well in view takes over (it used to keep playing at 10% while the one in view sat paused)
+    if (chosen && sc(chosen) < 0.3) chosen = null;
     // you paused something that is still in view: stay quiet until it is gone
     const hush = list.some(v => userPaused.has(v) && sc(v) >= 0.35);
 
