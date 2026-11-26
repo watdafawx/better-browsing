@@ -245,8 +245,9 @@ dialog.lb video:hover::-webkit-media-controls-panel { opacity: 1 !important; poi
 .act .ic svg { width: 18.75px; height: 18.75px; }
 .act .n { min-width: 2.4ch; text-align: left; font-variant-numeric: tabular-nums; }
 .act.views { cursor: default; }
-.act[data-act="reply"]:hover, .act[data-act="bm"]:hover, .act[data-act="copy"]:hover { color: var(--accent); }
-.act[data-act="reply"]:hover .ic, .act[data-act="bm"]:hover .ic, .act[data-act="copy"]:hover .ic { background: var(--accent-soft); }
+.act[data-act="reply"]:hover, .act[data-act="bm"]:hover, .act[data-act="copy"]:hover, .act[data-act="dl"]:hover { color: var(--accent); }
+.act[data-act="reply"]:hover .ic, .act[data-act="bm"]:hover .ic, .act[data-act="copy"]:hover .ic, .act[data-act="dl"]:hover .ic { background: var(--accent-soft); }
+.act.busy { opacity: .5; pointer-events: none; }
 .act[data-act="rt"]:hover { color: var(--rt); }
 .act[data-act="rt"]:hover .ic { background: var(--rt-soft); }
 .act[data-act="like"]:hover, .act[data-act="lrt"]:hover { color: var(--like); }

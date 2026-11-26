@@ -23,6 +23,7 @@
     lrt: '<path d="M8.5 18s-5-3-5-6.8a2.8 2.8 0 0 1 5-1.7 2.8 2.8 0 0 1 5 1.7c0 3.8-5 6.8-5 6.8z"/><path d="M15 6.5 17.5 4 20 6.5M17.5 4v7.5a2.5 2.5 0 0 1-2.5 2.5"/>',
     bm: '<path d="M6.5 4h11v16.5L12 16.8l-5.5 3.7z"/>',
     copy: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    dl: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/>',
     share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/>',
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     views: '<path d="M5 20v-7M10 20V6M15 20v-9M20 20V9"/>',
@@ -264,6 +265,26 @@
     return h('button', { class: 'act', type: 'button', 'data-act': k, 'aria-label': label, title: label, 'aria-pressed': pressed === undefined ? null : String(!!pressed) },
       h('span', { class: 'ic' }, icon(k)), n === undefined ? null : h('span', { class: 'n' }, fmt(n)));
   }
+  // The first video/GIF of a post that has a plain MP4 (best bitrate first, from the model)
+  const videoOf = t => ((t && t.media) || []).find(m => (m.type === 'video' || m.type === 'gif') && safe(m.url));
+  async function download(btn, id) {
+    const t = store.tweet(id), m = videoOf(t);
+    if (!m) { fast.toast('No downloadable video in this post'); return; }
+    const url = safe(m.url), name = (t.author.screenName || 'x') + '-' + t.id + '.mp4';
+    btn.classList.add('busy');
+    try {
+      const r = await fetch(url, { credentials: 'omit' });
+      if (!r.ok) throw new Error(r.status);
+      const a = h('a', { href: URL.createObjectURL(await r.blob()), download: name });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      fast.toast('Downloaded ' + name);
+    } catch {
+      // the CDN refused a cross-origin read: let the browser open the file itself (right-click, Save as)
+      window.open(url, '_blank', 'noopener');
+      fast.toast('Opened the video in a new tab: Save as…');
+    } finally { btn.classList.remove('busy'); }
+  }
   function actions(t) {
     const s = XBB.settings, v = t.viewer || {}, st = t.stats || {};
     return h('div', { class: 'actions', role: 'group', 'data-id': t.id },
@@ -274,6 +295,7 @@
       h('span', { class: 'group' },
         s.likeRetweet === false ? null : act('lrt', v.liked && v.retweeted ? 'Undo like and retweet' : 'Like and retweet', undefined, v.liked && v.retweeted),
         act('bm', 'Bookmark', undefined, v.bookmarked),
+        videoOf(t) ? act('dl', 'Download video') : null,
         s.embedLink === false ? null : act('copy', 'Copy link for Discord (shows the tweet and its video in the chat)'),
         act('share', 'Copy link to post')));
   }
@@ -640,6 +662,7 @@
       else if (k === 'bm') toggle('bm', id);
       else if (k === 'rt') { if (e.shiftKey || XBB.settings.quickRetweet === false) rtMenu(btn, id, ctx.root); else toggle('rt', id); }
       else if (k === 'lrt') likeRetweet(id);
+      else if (k === 'dl') download(btn, id);
       else if (k === 'copy') copyLink(btn, id, false);
       else if (k === 'share') copyLink(btn, id, true);
       else if (k === 'reply') {
