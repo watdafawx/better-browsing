@@ -217,7 +217,7 @@ const scrollToTweet = (page, id, block = 'center') => page.evaluate(([id, block]
     const sr = document.querySelector('xbb-fast').shadowRoot, seen = {};
     const look = () => {
       const q = (k, sel) => { if (sr.querySelector(sel)) seen[k] = true; };
-      q('text', 'article.tweet[data-id="1001"] .text a[href="/hashtag/hello?src=hashtag_click"]');
+      q('text', 'article.tweet[data-id="1001"] .text a[href="/search?q=%23hello&src=hashtag_click"]');
       q('mention', 'article.tweet[data-id="1001"] .text a[href="/bob"]');
       q('url', 'article.tweet[data-id="1001"] .text a[href="https://example.test/page"]');
       q('long', 'article.tweet[data-id="1002"] .text.clamp + .show-more');
