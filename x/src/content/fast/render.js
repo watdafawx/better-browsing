@@ -153,7 +153,7 @@
         const href = safe(best.u.expandedUrl || best.u.url);
         frag.append(href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer nofollow', title: best.u.expandedUrl || '' }, best.u.displayUrl || best.u.expandedUrl || raw) : raw);
       } else if (best.kind === 'mention') frag.append(opts.plain ? raw : h('a', { href: '/' + best.m.screenName }, raw));
-      else frag.append(opts.plain ? raw : h('a', { href: '/hashtag/' + encodeURIComponent(best.g.text) + '?src=hashtag_click' }, raw));
+      else frag.append(opts.plain ? raw : h('a', { href: '/search?q=' + encodeURIComponent('#' + best.g.text) + '&src=hashtag_click' }, raw));   // the search route itself: a middle click opens in Fast UI, not X's /hashtag page
       i = at + best.s.length;
     }
     return frag;
