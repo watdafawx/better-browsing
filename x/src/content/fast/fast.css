@@ -188,6 +188,9 @@ main { min-width: 0; border-inline: 1px solid var(--line); min-height: calc(100v
 .media .playmark { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; }
 .media .playmark svg { width: 40px; height: 40px; padding: 10px; border-radius: 50%; background: var(--accent); }
 .vid { position: relative; margin-top: 12px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: #000; max-height: 510px; }
+/* Chrome paints a <video> on its own layer and lets a pixel of it past the rounded overflow clip at the bottom edge; clip-path clips the layer too */
+.vid, .media.n1 { clip-path: inset(0 round var(--radius)); }
+.quote .media.n1 { clip-path: inset(0 round 12px); }
 .vid .vc { width: 100%; height: 100%; }
 .vid video { display: block; width: 100%; height: 100%; background: #000; object-fit: contain; }
 /* Chrome auto-hides <video controls> inside shadow-DOM <dialog>s even while hovered: keep the bar visible & clickable on hover */
@@ -201,7 +204,7 @@ dialog.lb video:hover::-webkit-media-controls-panel { opacity: 1 !important; poi
 .vid .tag { position: absolute; left: 10px; bottom: 10px; padding: 0 6px; border-radius: 4px; font: 700 12px/18px var(--font); color: #fff; background: rgb(0 0 0 / .7); pointer-events: none; }
 .novid { display: flex; align-items: center; justify-content: center; gap: 8px; height: 100%; min-height: 120px; color: #fff; font-weight: 700; }
 .sens { position: relative; margin-top: 12px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--bg-2); }
-.sens .media { margin-top: 0; border: 0; border-radius: 0; min-height: 200px; }
+.sens .media { margin-top: 0; border: 0; border-radius: 0; min-height: 200px; clip-path: none; }
 .sens .media .ph { background: #000; }
 .sens .media img { width: 100%; height: 100%; object-fit: cover; filter: blur(32px) brightness(.75); transform: scale(1.15); }
 .sens .reveal { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; color: #fff; background: rgb(0 0 0 / .42); text-align: center; cursor: default; }
