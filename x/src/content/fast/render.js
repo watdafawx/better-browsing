@@ -700,6 +700,6 @@
         u.bio && !opts.short ? h('div', { class: 'bio', dir: 'auto' }, u.bio) : null));
   }
 
-  fast.render = { tweet, userCard, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
+  fast.render = { videoOf, tweet, userCard, attach, release, estimate, click, icon, fmt, rel, full, rich, toggle, likeRetweet, copyLink, expanded, revealed, path,
     act, syncActions, avatar, badge, safe, photoSrc, mp4, ratio, scanAuto };
 })();

@@ -47,7 +47,8 @@ html[data-xbb-fast]:not([data-xbb-fast="native"]), html[data-xbb-fast]:not([data
 html[data-bb-page][data-bb-page][data-xbb-fast]:not([data-xbb-fast="native"]), html[data-bb-page][data-bb-page][data-xbb-fast]:not([data-xbb-fast="native"]) body { background: var(--bb-page-bg); }
 html[data-bb-transparent="1"][data-xbb-fast]:not([data-xbb-fast="native"]), html[data-bb-transparent="1"][data-xbb-fast]:not([data-xbb-fast="native"]) body { background: transparent !important; }
 .xbb-fast-toast {
-  position: fixed; left: 50%; bottom: 28px; z-index: 2147483000; transform: translate(-50%, 16px);
+  position: fixed; left: 50%; bottom: 28px; top: auto; right: auto; margin: 0; border: 0; overflow: visible; width: auto; height: auto;
+  z-index: 2147483000; transform: translate(-50%, 16px);
   max-width: min(92vw, 520px); padding: 10px 18px; border-radius: 8px;
   background: rgb(29, 155, 240); color: #fff; font: 600 15px/20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   box-shadow: 0 4px 18px rgba(0, 0, 0, .35); opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;

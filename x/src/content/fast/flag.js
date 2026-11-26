@@ -180,13 +180,15 @@
   function toast(msg) {
     if (!document.body) { addEventListener('DOMContentLoaded', () => toast(msg), { once: true }); return; }
     if (!toastEl || !toastEl.isConnected) {
-      toastEl = XBB.h('div', { class: 'xbb-root xbb-fast-toast', role: 'status', 'aria-live': 'polite' });
+      // a manual popover: the top layer, so it also shows above a modal <dialog> (the lightbox, the drawer)
+      toastEl = XBB.h('div', { class: 'xbb-root xbb-fast-toast', role: 'status', 'aria-live': 'polite', popover: 'manual' });
       document.body.append(toastEl);
     }
     toastEl.textContent = msg;
+    try { if (!toastEl.matches(':popover-open')) toastEl.showPopover(); else { toastEl.hidePopover(); toastEl.showPopover(); } } catch {}   // re-shown last, so it stays above a dialog opened since
     toastEl.classList.add('on');
     clearTimeout(toastT);
-    toastT = setTimeout(() => toastEl.classList.remove('on'), 3200);
+    toastT = setTimeout(() => { toastEl.classList.remove('on'); setTimeout(() => { try { if (!toastEl.classList.contains('on')) toastEl.hidePopover(); } catch {} }, 250); }, 3200);
   }
 
   // ---------- navigation that X's own router follows ----------

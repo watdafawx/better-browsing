@@ -80,6 +80,7 @@
       r.act('like', 'Like', (t.stats || {}).likes, v.liked),
       s.likeRetweet === false ? null : r.act('lrt', v.liked && v.retweeted ? 'Undo like and retweet' : 'Like and retweet', undefined, v.liked && v.retweeted),
       r.act('bm', 'Bookmark', undefined, v.bookmarked),
+      r.videoOf(t) ? r.act('dl', 'Download video') : null,
       s.embedLink === false ? null : r.act('copy', 'Copy link for Discord (shows the tweet and its video in the chat)'),
       h('button', { class: 'lb-thread', type: 'button', 'data-lb-act': 'thread', title: 'Open the thread' }, r.icon('thread'), h('span', null, 'Open thread')));
     if (unsub) unsub();
