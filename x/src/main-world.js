@@ -12,6 +12,7 @@
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
   const autoDesc = Object.getOwnPropertyDescriptor(P, 'autoplay');
+  const loopDesc = Object.getOwnPropertyDescriptor(P, 'loop');
   // Remember the audio state our own writes leave, so the volumechange they cause is never taken for the
   // user's (a video we had to leave muted before the first click stayed muted for good that way).
   const mine = new WeakMap();
@@ -95,6 +96,12 @@
     }
   }
 
+  function applyLoop(el) {
+    if (!cfg.loop || !(el instanceof HTMLVideoElement) || ours(el) || isGif(el)) return;
+    el.dataset.xbbLoop = '1';
+    if (!loopDesc.get.call(el)) loopDesc.set.call(el, true);
+  }
+
   // With one-at-a-time (or autoplay off), only the picked video, or one the user just started, may play.
   const gated = el => cfg.mode === 'off' || cfg.one;
   // Only the pick, or a video you just clicked yourself. Not "any video, for a while after any click": X
@@ -103,6 +110,7 @@
   const mayPlay = el => el.hasAttribute('data-xbb-pick') || userOn(el);
 
   P.play = function () {
+    applyLoop(this);
     if (!active(this)) return origPlay.apply(this, arguments);
     if (gated(this) && !mayPlay(this)) return Promise.resolve();   // swallow X's autoplay
     this._xbbPagePlay = performance.now();   // a page call: X's, or ours; not the browser's own controls
@@ -121,7 +129,7 @@
   // Same for pause: one the browser makes itself (its control bar, the media keys) never comes through here.
   const origPause = P.pause;
   P.pause = function () {
-    if (active(this)) this._xbbPagePause = performance.now();
+    if (this instanceof HTMLVideoElement) this._xbbPagePause = performance.now();
     return origPause.apply(this, arguments);
   };
 
@@ -160,6 +168,15 @@
     get() { return autoDesc.get.call(this); },
     set(v) { if (v && active(this) && gated(this)) return; autoDesc.set.call(this, v); }
   });
+  // Keep X's player from clearing loop back to false when Loop videos is enabled.
+  if (loopDesc) Object.defineProperty(P, 'loop', {
+    configurable: true, enumerable: true,
+    get() { return loopDesc.get.call(this); },
+    set(v) {
+      if (!v && cfg.loop && this instanceof HTMLVideoElement && !ours(this) && !isGif(this) && !this.hasAttribute('data-xbb-loop-set')) return;
+      loopDesc.set.call(this, v);
+    }
+  });
 
   // React sets `muted` as a property on mount, before play(); re-apply our level when playback starts.
   // Before the page has had a click, unmuting would make the browser pause the video: wait for the click.
@@ -172,6 +189,7 @@
   const canSound = el => { try { if (navigator.getAutoplayPolicy) return navigator.getAutoplayPolicy(el) === 'allowed'; } catch {} return activated(); };
   const onPlaying = e => {
     const v = e.target;
+    applyLoop(v);
     if (!active(v)) return;
     if (v.muted && cfg.mode === 'volume' && !canSound(v)) { waiting.add(v); return; }
     waiting.delete(v);

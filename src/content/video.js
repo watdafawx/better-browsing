@@ -86,11 +86,18 @@
     }
   }, { threshold: 0.15 });
 
+  function syncLoop(v) {
+    if (v.dataset.rbeOwn && v.dataset.rbeSilent) return;   // GIFs in lightbox always loop
+    const want = !!RBE.settings.videoLoop;
+    if (v.loop !== want) { v.dataset.rbeLoopSet = '1'; v.loop = want; delete v.dataset.rbeLoopSet; }
+  }
+
   function guard(v) {
     if (seen.has(v)) return;
     seen.add(v);
     known.add(v);
     io.observe(v);
+    syncLoop(v);
     // Playing again (the user pressed play, or the page restarted it) ends an earlier user pause: a mark left
     // behind would stop it from ever coming back after it scrolls away and returns.
     v.addEventListener('playing', () => { v._rbePlaying = true; if (v.dataset.rbeUserPaused) delete v.dataset.rbeUserPaused; });
@@ -103,6 +110,7 @@
     });
     v.addEventListener('play', () => {
       const s = RBE.settings;
+      syncLoop(v);
       if (away() && !gesture()) { v.pause(); return; }
       // Started while wholly out of view (an autoplay attribute once the source arrives, a player that restarts
       // after buffering or a re-mount, hls.js once its stream is ready): pause it and let it start when it comes
@@ -132,7 +140,8 @@
 
   function publish(s) {
     // `off`: videoPauseOffscreen, for main-world.js's hold on play() calls made out of view
-    document.documentElement.dataset.rbeVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, off: !!s.videoPauseOffscreen });
+    document.documentElement.dataset.rbeVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, off: !!s.videoPauseOffscreen, loop: !!s.videoLoop });
+    for (const v of known) if (v.isConnected) syncLoop(v);
   }
   RBE.onSettings(publish);
 
@@ -252,7 +261,7 @@
       v.addEventListener('click', v._rbeToggle);
     }
   }
-  RBE.onSettings(() => document.querySelectorAll('video[data-rbe-own]').forEach(ownControls));
+  RBE.onSettings(() => document.querySelectorAll('video[data-rbe-own]').forEach(v => { ownControls(v); syncLoop(v); }));
 
   // For videos we create ourselves (viewer / lightbox)
   RBE.setupOwnVideo = function (v, { autoplay = true } = {}) {

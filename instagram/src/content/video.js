@@ -11,10 +11,19 @@
   const autoScroll = () => IGB.settings.reelsAutoScroll && onReels();
   const visible = new Set();   // videos currently on screen; only those need work
 
+  function publish(s = IGB.settings) {
+    root.dataset.igbVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, loop: !!s.videoLoop, autoScroll: !!autoScroll() });
+  }
+  function syncLoop(v) {
+    if (ours(v) || isTile(v) || isStory()) return;
+    const want = !!IGB.settings.videoLoop && !autoScroll();
+    if (v.loop !== want) { v.dataset.igbLoopSet = '1'; v.loop = want; delete v.dataset.igbLoopSet; }
+  }
   IGB.onSettings(s => {
-    root.dataset.igbVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0 });
+    publish(s);
     root.classList.toggle('igb-native', !!s.nativeControls);
     visible.forEach(prep);
+    document.querySelectorAll('.igb-root video').forEach(v => { v.loop = !!s.videoLoop; });
   });
 
   // Instagram lays a transparent overlay (its play button, mute button, tag icon, double-tap like)
@@ -77,10 +86,10 @@
   function prep(v) {
     if (ours(v) || isTile(v)) return;
     const s = IGB.settings;
+    syncLoop(v);
     const on = s.nativeControls && !isStory();
     if (on) {
       if (!v.controls) v.controls = true;
-      v.loop = !!s.videoLoop && !autoScroll();
       v.dataset.igbNative = '1';
       unlink(v);
       markOverlay(v);
@@ -117,11 +126,18 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) pauseAway(); });
   addEventListener('blur', () => setTimeout(() => { if (!document.hasFocus()) { blurred = true; pauseAway(); } }));
   addEventListener('focus', () => { blurred = false; });
-  document.addEventListener('play', e => { if (away() && e.target instanceof HTMLVideoElement) e.target.pause(); }, true);
+  document.addEventListener('play', e => {
+    const v = e.target;
+    if (!(v instanceof HTMLVideoElement)) return;
+    if (away()) { v.pause(); return; }
+    if (IGB.settings.videoPauseOffscreen && v._igbInView === false && !ours(v) && !isTile(v) && document.pictureInPictureElement !== v) { v.pause(); return; }
+    syncLoop(v);
+  }, true);
 
   const io = new IntersectionObserver(entries => {
     for (const e of entries) {
       const v = e.target;
+      v._igbInView = e.isIntersecting;
       if (e.isIntersecting) { visible.add(v); prep(v); }
       else {
         visible.delete(v);
@@ -131,8 +147,11 @@
   }, { threshold: 0.15 });
 
   const seen = new WeakSet();
+  let lastAuto = null;
   function scan() {
-    document.querySelectorAll('video').forEach(v => { if (!seen.has(v)) { seen.add(v); io.observe(v); } });
+    const curAuto = !!autoScroll();
+    if (curAuto !== lastAuto) { lastAuto = curAuto; publish(); }
+    document.querySelectorAll('video').forEach(v => { if (!seen.has(v)) { seen.add(v); io.observe(v); syncLoop(v); } });
     for (const v of visible) v.isConnected ? prep(v) : visible.delete(v);
   }
   IGB.onDomChange(scan, 300);
@@ -161,10 +180,10 @@
     else scroller(from).scrollBy({ top: from.getBoundingClientRect().height, behavior: 'smooth' }); // next one not rendered yet
     return true;
   };
-  // Instagram may set loop itself; keep it off while auto-scroll is on
+  // Instagram may reset loop itself; enforce our loop setting (or keep it off while auto-scroll is on)
   document.addEventListener('playing', e => {
     const v = e.target;
-    if (v instanceof HTMLVideoElement && autoScroll() && !ours(v) && !isTile(v)) v.loop = false;
+    if (v instanceof HTMLVideoElement) syncLoop(v);
   }, true);
   document.addEventListener('ended', e => {
     const v = e.target;

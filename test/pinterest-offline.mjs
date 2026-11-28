@@ -318,7 +318,7 @@ await page.evaluate(async () => {
 await page.waitForTimeout(250);
 
 const checks = {
-  'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40,"feed":false}' && r.boot.native && r.boot.snap,
+  'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40,"feed":false,"loop":true}' && r.boot.native && r.boot.snap,
   'the feed-sound switch is published (off by default, on when set)': /"feed":true/.test(r.feed?.on || '') && /"feed":false/.test(r.feed?.off || ''),
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
   'a pin opens our viewer, not Pinterest\'s page (image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /(1200x|750x|736x|originals)\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,

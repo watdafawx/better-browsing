@@ -8,6 +8,7 @@
   const origPlay = P.play;
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
+  const loopDesc = Object.getOwnPropertyDescriptor(P, 'loop');
   // Remember the audio state our own writes leave, so the volumechange they cause is never taken for the
   // user's (a video we had to mute before the first click stayed muted for good that way).
   const mine = new WeakMap();
@@ -149,6 +150,7 @@
   P.play = function () {
     if (behindLb(this)) return Promise.resolve();
     if (this instanceof HTMLVideoElement && !ours(this)) { // so the lightbox can pause it, even inside shadow DOM
+      if (cfg().loop && loopDesc && !loopDesc.get.call(this)) loopDesc.set.call(this, true);
       if (played.size > 40) for (const v of played) if (!v.isConnected) played.delete(v);
       played.add(this);
       if (closedRoot(this)) trackClosed(this);
@@ -212,6 +214,7 @@
   // A video still waiting for a click is fine to unmute once the page has had one.
   document.addEventListener('playing', e => {
     const v = e.target;
+    if (v instanceof HTMLVideoElement && !ours(v) && cfg().loop && loopDesc && !loopDesc.get.call(v)) loopDesc.set.call(v, true);
     if (!active(v)) return;
     if (waitingForGesture.has(v) && canSound(v)) waitingForGesture.delete(v);
     if (!waitingForGesture.has(v)) applyAudio(v, cfg());
@@ -262,5 +265,13 @@
     configurable: true, enumerable: true,
     get() { return autoDesc.get.call(this); },
     set(v) { if (v && active(this) && cfg().mode === 'off') return; autoDesc.set.call(this, v); }
+  });
+  if (loopDesc) Object.defineProperty(P, 'loop', {
+    configurable: true, enumerable: true,
+    get() { return loopDesc.get.call(this); },
+    set(v) {
+      if (!v && cfg().loop && this instanceof HTMLVideoElement && !ours(this) && !this.hasAttribute('data-rbe-loop-set')) return;
+      loopDesc.set.call(this, v);
+    }
   });
 })();

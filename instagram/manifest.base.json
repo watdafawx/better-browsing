@@ -1,6 +1,6 @@
 {
   "name": "Instagram Better Browsing",
-  "version": "1.6.14",
+  "version": "1.6.15",
   "description": "Instagram part of the userscript. This file lists the scripts build.js puts into dist/better-browsing.user.js, in load order, and holds the Instagram part's version.",
   "content_scripts": [
     {

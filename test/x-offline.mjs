@@ -509,6 +509,26 @@ if (!FF) {
   await ctx.close();
 }
 
+// ---------- loop videos: works with nativeControls on or off, resists X clearing loop ----------
+{
+  for (const nativeControls of [true, false]) {
+    const { ctx, page } = await open({ videoLoop: true, nativeControls }, '/home', 900);
+    await page.waitForTimeout(1500);
+    const active = playing(await vids(page));
+    const res = await page.evaluate(async id => {
+      const v = document.getElementById(id);
+      if (!v) return null;
+      v.loop = false;   // simulate X's React resetting loop
+      const keptLoop = v.loop;
+      v.currentTime = Math.max(0, (v.duration || 1) - 0.25);
+      await new Promise(r => setTimeout(r, 900));
+      return { keptLoop, loop: v.loop, paused: v.paused, ended: v.ended };
+    }, active);
+    check(`loop videos (nativeControls=${nativeControls}): resists page reset and keeps playing past end`, !!res && res.keptLoop && res.loop && !res.paused && !res.ended, { active, res });
+    await ctx.close();
+  }
+}
+
 // ---------- content realm + nonce CSP (Violentmonkey, @inject-into auto, Firefox on X) ----------
 // There the manager runs the script outside the page's JS world and the inline <script> for the page hooks
 // would be blocked, so they must go in with a nonce borrowed from one of the page's own scripts.

@@ -25,8 +25,8 @@
     const s = PIN.settings;
     for (const e of entries) {
       const v = e.target;
+      v._pinInView = e.isIntersecting;
       if (v.dataset.pinOwn) {
-        v._pinInView = e.isIntersecting;
         if (e.isIntersecting) {
           v._pinSeen = true;
           // our own video that wanted to play but was out of view: start it now
@@ -48,11 +48,17 @@
     }
   }, { threshold: 0.15 });
 
+  function syncLoop(v) {
+    const want = !!PIN.settings.videoLoop;
+    if (v.loop !== want) { v.dataset.pinLoopSet = '1'; v.loop = want; delete v.dataset.pinLoopSet; }
+  }
+
   function guard(v) {
     if (seen.has(v)) return;
     seen.add(v);
     known.add(v);
     io.observe(v);
+    syncLoop(v);
     v.addEventListener('playing', () => { v._pinPlaying = true; });
     // A pause right after a click/key on that player is the user's: never undo it later. In the light DOM the
     // click lands on the video or its own container (a few levels up); inside a player's shadow root only that
@@ -77,7 +83,13 @@
     });
     v.addEventListener('play', () => {
       const s = PIN.settings;
+      syncLoop(v);
       if (away() && !gesture()) { v.pause(); return; }
+      if (s.videoPauseOffscreen && v._pinInView === false && !gesture() && document.pictureInPictureElement !== v) {
+        v.pause();
+        v.dataset.pinPausedOffscreen = '1';
+        return;
+      }
       if (s.videoMode === 'off' && !gesture() && !v.dataset.pinAllowed) v.pause();
       if (gesture()) v.dataset.pinAllowed = '1';
     });
@@ -104,8 +116,10 @@
   }
 
   function publish(s) {
-    document.documentElement.dataset.pinVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, feed: s.feedSound === true });
+    document.documentElement.dataset.pinVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, feed: s.feedSound === true, loop: !!s.videoLoop });
     document.documentElement.classList.toggle('pin-native', s.nativeControls !== false);
+    for (const v of known) if (v.isConnected) syncLoop(v);
+    document.querySelectorAll('video[data-pin-own]').forEach(syncLoop);
   }
   PIN.onSettings(publish);
 

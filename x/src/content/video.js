@@ -12,7 +12,7 @@
 
   const score = new Map();         // the videos we watch (the observer only wakes us up; see sc())
   const userPaused = new WeakSet();
-  const failed = new WeakSet();
+  const failed = new WeakMap();    // video -> src that failed (cleared automatically when X recycles the element)
   let pick = null;                 // the video that should be playing
   let chosen = null;               // a video the user started: keeps the pick while it stays on screen
 
@@ -38,14 +38,25 @@
   const on = (v, t) => { if (!t) return false; if (t === v) return true; const p = playerOf(v); return !!p && p !== document.body && p !== document.documentElement && p.contains(t); };
   const userOn = v => Date.now() - lastGesture <= 1500 && on(v, lastTarget);
 
-  // ---------- native controls ----------
+  // ---------- native controls & loop ----------
+  function syncLoop(v) {
+    if (!managed(v)) return;
+    const want = !!XBB.settings.videoLoop;
+    if (want) v.dataset.xbbLoop = '1';
+    else delete v.dataset.xbbLoop;
+    if (v.loop !== want) {
+      v.dataset.xbbLoopSet = '1';
+      v.loop = want;
+      delete v.dataset.xbbLoopSet;
+    }
+  }
   function prep(v) {
     if (!managed(v)) return;
     const s = XBB.settings;
+    syncLoop(v);
     const box = v.closest('[data-testid="videoComponent"]') || v.parentElement?.parentElement;
     if (s.nativeControls) {
       if (!v.controls) v.controls = true;
-      v.loop = !!s.videoLoop;
       v.dataset.xbbNative = '1';
       if (box && box !== document.body && box !== document.documentElement) box.setAttribute('data-xbb-player', '1');
       if (!v._xbbClick) {
@@ -84,7 +95,9 @@
   addEventListener('focus', () => { blurred = false; schedule(0); });
 
   function start(v) {
-    if (failed.has(v)) return;
+    const src = v.currentSrc || v.src || '';
+    if (src && failed.get(v) === src) return;
+    syncLoop(v);
     const s = XBB.settings;
     // If main-world.js didn't inject (strict CSP without a nonce), apply audio from here too.
     if (!(window.wrappedJSObject || window).__xbbMainWorld && s.videoMode === 'volume') {
@@ -95,10 +108,11 @@
     // main-world.js's play() handles sound before the first click (starts muted, unmutes on the click);
     // unwrap in Firefox's content realm so Xray wrappers don't bypass the page-world prototype patch.
     pageEl(v).play().catch(err => {
-      // Neither a pause by us nor a browser that refuses to start before the first click is a reason to
-      // give up on this video: after a click it may play, and the click schedules another try.
+      // Neither a pause by us, a browser refusing to start before the first click, nor a video whose
+      // source hasn't arrived yet is a reason to give up on this element.
       if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') return;
-      failed.add(v);
+      if (!src || v.readyState === 0) return;
+      failed.set(v, src);
     });
   }
   const setPick = v => {
@@ -120,11 +134,11 @@
       list.push(v);
     }
     // gone from the screen: a pause of yours no longer counts, and offscreen videos pause
+    const offCut = 0.15;
     for (const v of list) {
-      if (sc(v) < 0.05) {
-        userPaused.delete(v);
-        if (s.videoPauseOffscreen && !v.paused && !isPip(v) && document.fullscreenElement !== v) quiet(v);
-      }
+      const vis = sc(v);
+      if (vis < 0.05) userPaused.delete(v);
+      if (vis < offCut && s.videoPauseOffscreen && !v.paused && !isPip(v) && document.fullscreenElement !== v) quiet(v);
     }
     // a video you started stays the pick while it is mostly in view; once only a sliver is left, another
     // video that is well in view takes over (it used to keep playing at 10% while the one in view sat paused)
@@ -141,6 +155,9 @@
       const mid = innerHeight / 2, dist = v => { const r = v.getBoundingClientRect(); return Math.abs(r.top + r.height / 2 - mid); };
       best = cand.sort((a, b) => dist(a) - dist(b))[0] || null;
       if (pick && pick !== best && cand.includes(pick) && dist(pick) <= dist(best) + innerHeight * 0.08) best = pick;
+      // No video is >=50% in view: keep the current pick playing until it is mostly scrolled away
+      // (so it doesn't abruptly stop at 49% when nothing else is taking over, yet always stops below 25%).
+      if (!best && pick && list.includes(pick) && !pick.paused && !pick.ended && !userPaused.has(pick) && sc(pick) >= (s.videoPauseOffscreen ? 0.25 : 0.05)) best = pick;
     }
     setPick(best);
 
@@ -153,15 +170,26 @@
   // Fast UI's overlays: while one is up, only the videos inside it may play (XBB.videoPolicy.scope)
   let scopeEl = null;
   const inScope = v => !scopeEl || !scopeEl.isConnected || scopeEl.contains(v);
-  let timer = 0;
-  function schedule(ms = 120) { clearTimeout(timer); timer = setTimeout(evaluate, ms); }
+  let timer = 0, lastEval = 0;
+  function runEval() { timer = 0; lastEval = performance.now(); evaluate(); }
+  // Throttle + trailing debounce: continuous scrolling still evaluates every ~120 ms instead of starving
+  // until the scroll stops completely, and a final evaluation always runs after scroll settles.
+  function schedule(ms = 120) {
+    if (ms <= 0) { clearTimeout(timer); timer = setTimeout(runEval, 0); return; }
+    const elapsed = performance.now() - lastEval;
+    if (elapsed >= ms) { clearTimeout(timer); timer = setTimeout(runEval, 0); return; }
+    clearTimeout(timer);
+    timer = setTimeout(runEval, Math.max(20, ms - elapsed));
+  }
 
   // ---------- events ----------
   const onPlay = e => {
     const v = e.target, s = XBB.settings;
     if (!managed(v)) return;
+    syncLoop(v);
     if (!inScope(v)) { quiet(v); return; }   // behind an overlay
     if (away() && !userOn(v)) { quiet(v); return; }   // X restarting something while you are away
+    if (s.videoMode !== 'default' && s.videoPauseOffscreen && sc(v) < 0.15 && !userOn(v) && !isPip(v)) { quiet(v); return; }
     if (userOn(v) || barPlay(v)) {         // you started it: it wins, and everything else yields
       userPaused.delete(v);
       chosen = v;
@@ -178,17 +206,31 @@
   const onPause = e => {
     const v = e.target;
     if (!managed(v) || v.ended || performance.now() - (v._xbbQuiet || 0) < 400) return;
+    if (!userOn(v) && sc(v) < 0.15) return;   // offscreen pause by X or the browser is not a user pause
     // Paused by you if you clicked the player, or if the browser's own controls did it: those, and the media
     // keys, never call pause(), so no page call came before this pause. X's own pauses always do.
     if (userOn(v) || !pageCall(v, '_xbbPagePause')) { userPaused.add(v); if (chosen === v) chosen = null; }
   };
   const onEnded = e => {
-    if (e.target === chosen) chosen = null;
-    if (e.target === pick) schedule(0);
+    const v = e.target;
+    if (managed(v) && XBB.settings.videoLoop && !userPaused.has(v) && inScope(v) && !away() && (!XBB.settings.videoPauseOffscreen || sc(v) >= 0.15)) {
+      // Fallback if the site/MSE fired ended despite v.loop = true
+      syncLoop(v);
+      try { v.currentTime = 0; } catch {}
+      start(v);
+      return;
+    }
+    if (v === chosen) chosen = null;
+    if (v === pick) schedule(0);
+  };
+  const onReady = e => {
+    const v = e.target;
+    if (v === pick && managed(v) && v.paused && !v.ended && !userPaused.has(v) && !away() && XBB.settings.videoMode !== 'off' && XBB.settings.videoMode !== 'default') start(v);
   };
   document.addEventListener('play', onPlay, true);
   document.addEventListener('pause', onPause, true);
   document.addEventListener('ended', onEnded, true);
+  document.addEventListener('loadeddata', onReady, true);
 
   const io = new IntersectionObserver(entries => {
     for (const e of entries) {
@@ -196,12 +238,12 @@
       score.set(e.target, e.isIntersecting && r.height ? e.intersectionRect.height / Math.min(r.height, innerHeight) : 0);
     }
     schedule();
-  }, { threshold: [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1] });
+  }, { threshold: [0, 0.05, 0.15, 0.25, 0.35, 0.5, 0.65, 0.8, 1] });
 
   const seen = new WeakSet();
   function watch(v) {
     if (seen.has(v) || ours(v)) return false;
-    if (v.loop) v.setAttribute('data-xbb-gif', '');   // X loops GIFs itself; a real video only loops by our setting, applied below
+    if (v.loop && !v.dataset.xbbLoop && !v.hasAttribute('data-xbb-fast-video')) v.setAttribute('data-xbb-gif', '');   // X loops GIFs itself; a real video only loops by our setting, applied below
     seen.add(v);
     if (!managed(v)) return false;
     io.observe(v);
@@ -230,6 +272,7 @@
         v.addEventListener('play', onPlay, true);
         v.addEventListener('pause', onPause, true);
         v.addEventListener('ended', onEnded, true);
+        v.addEventListener('loadeddata', onReady, true);
         try { v.dispatchEvent(new CustomEvent('xbb-video-own', { bubbles: true, composed: true })); } catch {}
       }
       schedule(40);
@@ -247,6 +290,7 @@
         v.removeEventListener('play', onPlay, true);
         v.removeEventListener('pause', onPause, true);
         v.removeEventListener('ended', onEnded, true);
+        v.removeEventListener('loadeddata', onReady, true);
       }
     },
     // Before a node that holds videos is thrown away or reused: pause immediately, defer heavy v.load()
@@ -278,7 +322,7 @@
   }, { passive: true, capture: true });
   document.addEventListener('visibilitychange', () => { if (document.hidden) pauseAway(); else schedule(); });
   XBB.onSettings(s => {
-    root.dataset.xbbVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, one: !!s.videoOneAtATime });
+    root.dataset.xbbVideo = JSON.stringify({ mode: s.videoMode, volume: +s.videoVolume || 0, one: !!s.videoOneAtATime, loop: !!s.videoLoop });
     root.classList.toggle('xbb-native', !!s.nativeControls);
     root.classList.toggle('xbb-light', !!s.lighterPage);
     for (const v of score.keys()) prep(v);

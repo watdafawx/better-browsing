@@ -12,6 +12,7 @@
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
   const autoDesc = Object.getOwnPropertyDescriptor(P, 'autoplay');
+  const loopDesc = Object.getOwnPropertyDescriptor(P, 'loop');
   const setMuted = (el, v) => mutedDesc.set.call(el, v);
   const setVol = (el, v) => volDesc.set.call(el, v);
 
@@ -74,8 +75,13 @@
     if (lbOpen() && v instanceof HTMLVideoElement && !ours(v)) v.pause();
   }, true);
 
+  function applyLoop(el) {
+    if (loopDesc && cfg.loop && el instanceof HTMLVideoElement && !ours(el) && !loopDesc.get.call(el)) loopDesc.set.call(el, true);
+  }
+
   P.play = function () {
     if (lbOpen() && this instanceof HTMLVideoElement && !ours(this)) return Promise.resolve();
+    applyLoop(this);
     if (!active(this)) return origPlay.apply(this, arguments);
     const user = gesture();
     if (cfg.mode === 'off' && !user && !this.dataset.pinAllowed) return Promise.resolve(); // swallow autoplay
@@ -121,12 +127,21 @@
     get() { return autoDesc.get.call(this); },
     set(v) { if (v && active(this) && cfg.mode === 'off') return; autoDesc.set.call(this, v); }
   });
+  if (loopDesc) Object.defineProperty(P, 'loop', {
+    configurable: true, enumerable: true,
+    get() { return loopDesc.get.call(this); },
+    set(v) {
+      if (!v && cfg.loop && this instanceof HTMLVideoElement && !ours(this) && !this.hasAttribute('data-pin-loop-set')) return;
+      loopDesc.set.call(this, v);
+    }
+  });
 
   // React sets `muted` as a property on mount, before play(); re-apply our level when playback starts.
   // A video still waiting for a click is fine to unmute once the page has had one.
   const activated = () => !!navigator.userActivation?.hasBeenActive;
   document.addEventListener('playing', e => {
     const v = e.target;
+    applyLoop(v);
     if (!active(v)) return;
     if (waiting.has(v) && activated()) waiting.delete(v);
     if (!waiting.has(v)) applyAudio(v);

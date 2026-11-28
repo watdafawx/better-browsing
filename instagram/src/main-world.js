@@ -11,6 +11,7 @@
   const mutedDesc = Object.getOwnPropertyDescriptor(P, 'muted');
   const volDesc = Object.getOwnPropertyDescriptor(P, 'volume');
   const autoDesc = Object.getOwnPropertyDescriptor(P, 'autoplay');
+  const loopDesc = Object.getOwnPropertyDescriptor(P, 'loop');
   // Remember the audio state our own writes leave, so the volumechange they cause is never taken for the
   // user's (a video we had to mute before the first click stayed muted for good that way).
   const mine = new WeakMap();
@@ -83,8 +84,16 @@
     if (root.hasAttribute('data-igb-lb') && v instanceof HTMLVideoElement && !ours(v)) v.pause();
   }, true);
 
+  const isStory = () => location.pathname.startsWith('/stories/');
+  function applyLoop(el) {
+    if (!loopDesc || !(el instanceof HTMLVideoElement) || ours(el) || tile(el) || isStory()) return;
+    if (cfg.autoScroll) { if (loopDesc.get.call(el)) loopDesc.set.call(el, false); }
+    else if (cfg.loop) { if (!loopDesc.get.call(el)) loopDesc.set.call(el, true); }
+  }
+
   P.play = function () {
     if (root.hasAttribute('data-igb-lb') && this instanceof HTMLVideoElement && !ours(this)) return Promise.resolve();
+    applyLoop(this);
     if (!active(this)) return origPlay.apply(this, arguments);
     const user = gesture();
     if (cfg.mode === 'off' && !user && !this.dataset.igbAllowed) return Promise.resolve(); // swallow autoplay
@@ -131,11 +140,23 @@
     get() { return autoDesc.get.call(this); },
     set(v) { if (v && active(this) && cfg.mode === 'off') return; autoDesc.set.call(this, v); }
   });
+  if (loopDesc) Object.defineProperty(P, 'loop', {
+    configurable: true, enumerable: true,
+    get() { return loopDesc.get.call(this); },
+    set(v) {
+      if (this instanceof HTMLVideoElement && !ours(this) && !tile(this) && !isStory() && !this.hasAttribute('data-igb-loop-set')) {
+        if (cfg.autoScroll && v) return;
+        if (cfg.loop && !cfg.autoScroll && !v) return;
+      }
+      loopDesc.set.call(this, v);
+    }
+  });
 
   // React sets `muted` as a property on mount, before play(); re-apply our level when playback starts.
   // A video still waiting for a click is fine to unmute once the browser would let it make sound.
   document.addEventListener('playing', e => {
     const v = e.target;
+    applyLoop(v);
     if (!active(v)) return;
     if (waiting.has(v) && canSound(v)) waiting.delete(v);
     if (!waiting.has(v)) applyAudio(v);
