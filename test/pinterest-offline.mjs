@@ -152,9 +152,18 @@ r.promoted = await page.evaluate(() => {
 // click the first image pin: our viewer opens, not Pinterest's page
 await page.click('#pin-111111 a');
 await page.waitForTimeout(1300);
-r.image = await page.evaluate(() => {
+r.image = await page.evaluate(async () => {
   const lb = document.querySelector('.pin-lb');
+  const stage = lb?.querySelector('.pin-lb-stage');
   const img = lb?.querySelector('img.pin-lb-media');
+  // Also verify a tall portrait image fits vertically inside the stage without overflowing/clipping
+  const probe = document.createElement('img');
+  probe.className = 'pin-lb-media';
+  probe.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="2400"/>');
+  stage?.append(probe);
+  await new Promise(res => { if (probe.complete) res(); else probe.onload = probe.onerror = res; });
+  const sr = stage?.getBoundingClientRect(), pr = probe.getBoundingClientRect();
+  probe.remove();
   return {
     open: !!lb,
     url: location.href,
@@ -166,6 +175,7 @@ r.image = await page.evaluate(() => {
     comments: lb?.querySelector('.pin-lb-comments-list')?.innerText.replace(/\s+/g, ' ').slice(0, 120) || '',
     locked: document.documentElement.classList.contains('pin-noscroll'),
     attr: document.documentElement.hasAttribute('data-pin-lb'),
+    fitsPortrait: !!(sr && pr && pr.height > 100 && pr.height <= sr.height + 1 && pr.width < pr.height),
   };
 });
 
@@ -321,7 +331,7 @@ const checks = {
   'userscript loads with settings, sidebar entry and the video attribute': r.boot?.pin && r.boot.volume === 40 && r.boot.nav && r.boot.navLabel === 'Better Browsing' && !r.boot.gear && r.boot.videoAttr === '{"mode":"volume","volume":40,"feed":false,"loop":true}' && r.boot.native && r.boot.snap,
   'the feed-sound switch is published (off by default, on when set)': /"feed":true/.test(r.feed?.on || '') && /"feed":false/.test(r.feed?.off || ''),
   'promoted pins are marked and hidden': r.promoted?.value === true && r.promoted.marked && r.promoted.display === 'none',
-  'a pin opens our viewer, not Pinterest\'s page (image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /(1200x|750x|736x|originals)\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr,
+  'a pin opens our viewer, not Pinterest\'s page (image, title, side panel, filmstrip)': r.image?.open && /\/$/.test(new URL(r.image.url).pathname) && /(1200x|750x|736x|originals)\/a\.jpg$/.test(r.image.src) && /pin 1 \/ 4/.test(r.image.count) && r.image.title === 'Image pin' && /alice/.test(r.image.side) && /saves/.test(r.image.side) && r.image.film === 4 && r.image.locked && r.image.attr && r.image.fitsPortrait,
   'the pin\'s comments load in the side panel': /@bob/.test(r.image?.comments || '') && /first comment here/.test(r.image?.comments || '') && /second comment/.test(r.image?.comments || ''),
   'stepping to a video uses our own player with the volume setting': r.video?.there && /x\.mp4$/.test(r.video.src) && Math.abs(r.video.vol - 0.4) < 0.01 && r.video.muted === false && r.video.controls === true && r.video.own === '1' && r.video.toggles,
   'with no autoplay the viewer opens paused and clicking the picture starts it': r.offMode?.there && r.offMode.before === true && r.offMode.calls === 1,
